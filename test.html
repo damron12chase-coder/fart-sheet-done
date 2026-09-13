@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>fsd tests</title></head>
+<body><pre id="result">RUNNING</pre>
+<script src="logic.js"></script>
+<script>
+let pass=0,fail=0;
+function t(name,cond){ if(cond){pass++;} else {fail++; document.getElementById('result').textContent += '\nFAIL: '+name;} }
+t('unlock ok', unlockOk(' fartsheetai ')===true);
+t('unlock bad', unlockOk('nope')===false);
+t('unlock case', unlockOk('FARTSHEETAI')===true);
+t('pages p1', JSON.stringify(defaultPages(1))==='[1,11]');
+t('pages p4', JSON.stringify(defaultPages(4))==='[36,49]');
+t('verifiable', ebookVerifiable('public_scan')===true && ebookVerifiable('borrowable')===false && ebookVerifiable('none')===false);
+t('next part', nextIncompletePart({'1':{completed:true},'2':{completed:false},'3':{completed:false},'4':{completed:false}})===2);
+t('next part all done', nextIncompletePart({'1':{completed:true},'2':{completed:true},'3':{completed:true},'4':{completed:true}})===null);
+t('sentences', sentenceCount('One. Two! Three? four')===3);
+t('usage fresh ok', usageAllowed({},Date.now()).ok===true);
+t('usage limit', usageAllowed({day:todayStr(),calls:12,lastCallTs:0},Date.now()).reason==='limit');
+t('usage cooldown', usageAllowed({day:todayStr(),calls:1,lastCallTs:Date.now()-5000},Date.now()).reason==='cooldown');
+t('usage day reset', usageAllowed({day:'2020-01-01',calls:12,lastCallTs:0},Date.now()).ok===true);
+t('json parse plain', parseSectionJSON('{"summary":"x"}').summary==='x');
+t('json parse fenced', parseSectionJSON('```json\n{"summary":"y"}\n```').summary==='y');
+t('json parse garbage', parseSectionJSON('not json')===null);
+t('sysprompt has book+range+json', (function(){var s=buildSystemPrompt({title:'Holes',author:'Louis Sachar'},[12,23],'summary',false); return s.indexOf('Holes')>-1 && s.indexOf('12-23')>-1 && s.indexOf('JSON')>-1 && s.indexOf('cannot see')>-1 && s.indexOf('chapter')>-1;})());
+t('sysprompt verifiable', buildSystemPrompt({title:'X',author:'Y'},[1,11],'devices',true).indexOf('publicly available')>-1);
+t('sysprompt all sections', ['summary','devices','vocab','connections'].every(function(s){return buildSystemPrompt({title:'X',author:'Y'},[1,11],s,false).indexOf('JSON shape')>-1;}));
+t('userprompt', buildUserPrompt({title:'Holes'},'vocab').indexOf('vocab')>-1);
+t('api key not baked', API_KEY==='');
+document.getElementById('result').textContent = (fail===0?'ALL PASS ':'PASS ') + pass + '/' + (pass+fail);
+</script></body></html>
