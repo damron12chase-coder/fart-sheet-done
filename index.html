@@ -39,10 +39,17 @@ button.active{outline:2px solid var(--accent)}
 .fld{display:block;color:var(--muted);font-size:14px;margin-top:8px}
 .coverimg{width:56px;height:84px;object-fit:cover;border-radius:4px;flex-shrink:0}
 .pgrow{display:flex;gap:8px;align-items:center}
+#app{padding-bottom:72px}
+#offline{position:fixed;top:0;left:0;right:0;z-index:5;background:#7c2d12;color:#fed7aa;text-align:center;padding:8px 16px;font-size:14px}
+#usage{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--card);border-top:1px solid var(--border);color:var(--muted);text-align:center;padding:8px 16px;font-size:14px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:52px;z-index:6;background:#0d0f14;border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:8px;max-width:90vw;box-shadow:0 4px 16px rgba(0,0,0,.4)}
 </style>
 </head>
 <body>
+<div id="offline" class="hidden">offline — drafts still save, AI needs internet</div>
 <div id="app"></div>
+<div id="toast" class="hidden" role="status"></div>
+<div id="usage"></div>
 <script src="logic.js"></script>
 <script>
 'use strict';
@@ -278,9 +285,94 @@ app.addEventListener('click',function(e){
   if(tab){activeP=Number(tab.getAttribute('data-tab'));renderBook();return;}
   if(el.id==='newbook'){newBook();return;}
   if(el.id==='donebtn'){markDone(activeP);return;}
+  var gen=el.closest?el.closest('[data-gen]'):null;
+  if(gen){var gs=gen.getAttribute('data-gen');if(gs)generate(activeP,gs);return;}
 });
 // --- generation (Task 4) ---
-// data-gen buttons are rendered by renderSheet; Task 4 attaches Generate handlers here.
+var busy=false,toastTimer=null;
+function isOffline(){return typeof navigator!=='undefined'&&navigator.onLine===false;}
+function genButtons(){
+  if(!app||!app.querySelectorAll)return [];
+  return Array.prototype.slice.call(app.querySelectorAll('[data-gen]'));
+}
+function usageView(){
+  var u=L('usage',{});
+  if(!u||typeof u!=='object'||u.day!==todayStr())return{day:todayStr(),calls:0,lastCallTs:0};
+  return u;
+}
+function coolingSec(){
+  var u=usageView();
+  var wait=CFG.COOLDOWN_SEC*1000-(Date.now()-(typeof u.lastCallTs==='number'?u.lastCallTs:0));
+  return wait>0?Math.ceil(wait/1000):0;
+}
+function setGenButtons(){
+  var dis=busy||isOffline()||coolingSec()>0;
+  genButtons().forEach(function(b){
+    b.disabled=dis;
+    if(!dis)b.textContent='Generate';
+  });
+}
+function updateFooter(){
+  var u=usageView();
+  var sec=coolingSec();
+  document.getElementById('usage').textContent='AI calls today: '+(typeof u.calls==='number'?u.calls:0)+'/'+CFG.DAILY_LIMIT+(sec>0?' — wait '+sec+'s':'');
+  setGenButtons();
+}
+function toast(msg){
+  var el=document.getElementById('toast');
+  el.textContent=msg;
+  el.classList.remove('hidden');
+  if(toastTimer)clearTimeout(toastTimer);
+  toastTimer=setTimeout(function(){el.classList.add('hidden');},4000);
+}
+function generate(p,section){
+  if(busy||!CFG.MAXT[section])return;
+  var g=usageAllowed(L('usage',{}),Date.now());
+  if(!g.ok){
+    toast(g.reason==='limit'?'Daily AI limit reached (12). Come back tomorrow.':'Wait '+g.retrySec+'s between AI calls.');
+    return;
+  }
+  g.u.calls++;g.u.lastCallTs=Date.now();g.u.day=todayStr();
+  S('usage',g.u);
+  busy=true;updateFooter();
+  genButtons().forEach(function(b){if(b.getAttribute('data-gen')===section)b.textContent='…';});
+  var bk=L('book',{});
+  var pages=(parts[String(p)]||{}).pages||defaultPages(p);
+  var sys=buildSystemPrompt(bk,pages,section,ebookVerifiable(bk.ebookAccess));
+  var usr=buildUserPrompt(bk,section);
+  fetch(CFG.BASE_URL+'/chat/completions',{
+    method:'POST',
+    headers:{'Authorization':'Bearer '+API_KEY,'content-type':'application/json'},
+    body:JSON.stringify({model:CFG.MODEL,messages:[{role:'system',content:sys},{role:'user',content:usr}],max_tokens:CFG.MAXT[section],temperature:0.7})
+  })
+  .then(function(res){
+    if(!res.ok){
+      toast(res.status===401?'access key was rotated; ask the owner':'AI is busy — try again in a minute');
+      return;
+    }
+    return res.text().then(function(txt){
+      var env=parseSectionJSON(txt);
+      var content=(env&&Array.isArray(env.choices)&&env.choices[0]&&env.choices[0].message&&typeof env.choices[0].message.content==='string')?env.choices[0].message.content:null;
+      var obj=content?parseSectionJSON(content):null;
+      if(!obj)toast('AI reply unreadable — hit Generate again');
+      else fillSection(section,obj);
+    });
+  })
+  .catch(function(){toast('AI is busy — try again in a minute');})
+  .finally(function(){busy=false;setGenButtons();updateFooter();});
+}
+function setOnlineBanner(on){
+  var el=document.getElementById('offline');
+  if(on)el.classList.add('hidden');else el.classList.remove('hidden');
+  setGenButtons();
+}
+if(typeof window!=='undefined'&&window.addEventListener){
+  window.addEventListener('online',function(){setOnlineBanner(true);});
+  window.addEventListener('offline',function(){setOnlineBanner(false);});
+}
+setInterval(updateFooter,1000);
+updateFooter();
+setOnlineBanner(!isOffline());
 route();
 </script>
 </body>
