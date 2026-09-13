@@ -31,6 +31,14 @@ button:disabled{opacity:.6;cursor:default}
 .aiwarn{display:inline-block;background:#7c2d12;color:#fed7aa;border-radius:999px;padding:2px 10px;font-size:13px;margin-bottom:10px}
 .card.warn{border-color:#b45309}
 .card.warn p{margin:0 0 14px}
+textarea{width:100%;padding:12px;margin:8px 0;border:1px solid var(--border);border-radius:8px;background:#0d0f14;color:var(--text);font-size:16px;font-family:inherit;min-height:64px;resize:vertical}
+h3{margin:14px 0 2px;font-size:16px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.tabs button{margin:0;flex:1 1 45%}
+button.active{outline:2px solid var(--accent)}
+.fld{display:block;color:var(--muted);font-size:14px;margin-top:8px}
+.coverimg{width:56px;height:84px;object-fit:cover;border-radius:4px;flex-shrink:0}
+.pgrow{display:flex;gap:8px;align-items:center}
 </style>
 </head>
 <body>
@@ -137,7 +145,126 @@ function showAck(){
     }
   });
 }
-function showBook(){document.getElementById('app').innerHTML='<div id="bookui"></div>';}
+function showBook(){
+  book=L('book',null);
+  parts=L('parts',null);
+  if(!parts||typeof parts!=='object'||!parts['1']||!Array.isArray(parts['1'].pages)){seedParts();S('parts',parts);}
+  activeP=nextIncompletePart(parts)||1;
+  renderBook();
+}
+var book=null,parts=null,activeP=1,saveTimer=null;
+var DONE_FIELDS=['dev1.name','dev1.quote','dev1.effect','dev1.mood','dev2.name','dev2.quote','dev2.effect','dev2.mood','w1.word','w1.definition','w1.quote','w2.word','w2.definition','w2.quote','w3.word','w3.definition','w3.quote','c1.pages','c1.quote','c1.connection','c2.pages','c2.quote','c2.connection'];
+function seedParts(){parts={};for(var p=1;p<=4;p++){var pg=defaultPages(p);parts[String(p)]={pages:[pg[0],pg[1]],completed:false,data:{}};}}
+function queueSave(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(function(){saveTimer=null;S('parts',parts);},400);}
+function tabLabel(p){var part=parts[String(p)];return 'Part '+p+' (pp '+part.pages[0]+'–'+part.pages[1]+')'+(part.completed?' ✓':'');}
+function renderBook(){
+  var n=nextIncompletePart(parts);
+  var html='<div class="card">'+
+    '<p class="sub" style="margin:0 0 10px">Continue <strong>'+esc(book.title)+'</strong> — '+(n?'resume Part '+n:'all done')+'</p>'+
+    '<div style="display:flex;gap:12px;align-items:center">'+
+    (book.coverUrl?'<img class="coverimg" src="'+esc(book.coverUrl)+'" alt="" loading="lazy">':'')+
+    '<div class="rmeta"><div class="rtitle">'+esc(book.title)+'</div>'+
+    '<div class="rauthor">'+esc(book.author||'unknown author')+'</div>'+
+    (book.studentName?'<div class="rauthor">'+esc(book.studentName)+'</div>':'')+
+    (book.year?'<div class="ryear">'+esc(book.year)+'</div>':'')+'</div></div>'+
+    '<div class="tabs">';
+  for(var i=1;i<=4;i++){html+='<button type="button" class="secondary'+(i===activeP?' active':'')+'" data-tab="'+i+'">'+esc(tabLabel(i))+'</button>';}
+  html+='</div><button type="button" id="newbook" class="secondary">New book</button></div><div id="sheet"></div>';
+  app.innerHTML=html;
+  renderSheet(activeP);
+}
+function renderSheet(p){
+  var part=parts[String(p)];
+  var warn=!ebookVerifiable(book.ebookAccess);
+  function fld(f,label,ta){
+    var v=part.data[f];
+    var e=esc(v==null?'':v);
+    return '<label class="fld">'+label+'</label>'+(ta?'<textarea data-p="'+p+'" data-f="'+f+'">'+e+'</textarea>':'<input data-p="'+p+'" data-f="'+f+'" value="'+e+'">');
+  }
+  function section(title,key,body){
+    return '<div class="card"><h2>'+title+'</h2>'+(warn?'<span class="aiwarn">AI draft — check quotes</span>':'')+body+
+      '<button type="button" class="secondary" data-gen="'+key+'">Generate</button></div>';
+  }
+  var html='<div class="card"><h2>Part '+p+' sheet</h2>'+
+    '<label class="fld">Name</label><input id="studentname" autocomplete="name" value="'+esc(book.studentName||'')+'">'+
+    '<label class="fld">Book Title / Author</label><input readonly tabindex="-1" value="'+esc(book.title+(book.author?' — '+book.author:''))+'">'+
+    '<label class="fld">Specific page numbers read:</label>'+
+    '<div class="pgrow"><input type="number" min="1" data-p="'+p+'" data-pg="0" value="'+esc(part.pages[0])+'">'+
+    '<span>to</span>'+
+    '<input type="number" min="1" data-p="'+p+'" data-pg="1" value="'+esc(part.pages[1])+'"></div></div>';
+  var dv='';
+  for(var i=1;i<=2;i++){dv+='<h3>Device '+i+'</h3>'+fld('dev'+i+'.name','Device name',false)+fld('dev'+i+'.quote','Quote',true)+fld('dev'+i+'.effect','Effect on reader',true)+fld('dev'+i+'.mood','Mood / tone',true);}
+  var vw='';
+  for(var j=1;j<=3;j++){vw+='<h3>Word '+j+'</h3>'+fld('w'+j+'.word','Word',false)+fld('w'+j+'.definition','Definition',true)+fld('w'+j+'.quote','Quote using the word',true);}
+  var cw='';
+  for(var k=1;k<=2;k++){cw+='<h3>Connection '+k+'</h3>'+fld('c'+k+'.pages','Page number(s)',false)+fld('c'+k+'.quote','Quote',true)+fld('c'+k+'.connection','Why it stood out',true);}
+  html+=section('Summary','summary',fld('summary','Summary — at least 5 sentences',true));
+  html+=section('Literary Devices','devices',dv);
+  html+=section('Vocabulary','vocab',vw);
+  html+=section('Connections','connections',cw);
+  html+='<div class="card"><button type="button" id="donebtn">Mark Part '+p+' done</button><p id="doneerr" class="err hidden">fill everything first</p></div>';
+  document.getElementById('sheet').innerHTML=html;
+}
+function fillSection(name,obj){
+  obj=obj||{};
+  var d=parts[String(activeP)].data;
+  function set(f,v){d[f]=v;}
+  if(name==='summary'){if(typeof obj.summary==='string')set('summary',obj.summary);}
+  else if(name==='devices'){(Array.isArray(obj.devices)?obj.devices:[]).slice(0,2).forEach(function(o,i){if(!o)return;['name','quote','effect','mood'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('dev'+(i+1)+'.'+k,String(o[k]));});});}
+  else if(name==='vocab'){(Array.isArray(obj.words)?obj.words:[]).slice(0,3).forEach(function(o,i){if(!o)return;['word','definition','quote'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('w'+(i+1)+'.'+k,String(o[k]));});});}
+  else if(name==='connections'){(Array.isArray(obj.connections)?obj.connections:[]).slice(0,2).forEach(function(o,i){if(!o)return;['pages','quote','connection'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('c'+(i+1)+'.'+k,String(o[k]));});});}
+  d['_'+name+'_drafted']=true;
+  S('parts',parts);
+  renderSheet(activeP);
+}
+function markDone(p){
+  var d=parts[String(p)].data;
+  var ok=sentenceCount(String(d['summary']||''))>=5;
+  for(var i=0;ok&&i<DONE_FIELDS.length;i++){if(!String(d[DONE_FIELDS[i]]||'').trim())ok=false;}
+  if(!ok){var err=document.getElementById('doneerr');if(err&&err.classList)err.classList.remove('hidden');return;}
+  parts[String(p)].completed=true;
+  S('parts',parts);
+  renderBook();
+}
+function newBook(){
+  if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}
+  var ar=L('archive',[]);
+  if(!Array.isArray(ar))ar=[];
+  ar.unshift({book:book,parts:parts,savedAt:Date.now()});
+  S('archive',ar.slice(0,5));
+  try{localStorage.removeItem('fsd:book');localStorage.removeItem('fsd:parts');}catch(e){}
+  book=null;parts=null;
+  route();
+}
+app.addEventListener('input',function(e){
+  if(!parts||!book)return;
+  var el=e.target;
+  if(!el||!el.getAttribute)return;
+  if(el.id==='studentname'){book.studentName=el.value;S('book',book);return;}
+  var p=el.getAttribute('data-p');
+  if(!p)return;
+  var f=el.getAttribute('data-f');
+  if(f!==null){parts[p].data[f]=el.value;queueSave();return;}
+  var pg=el.getAttribute('data-pg');
+  if(pg!==null){
+    var n=parseInt(el.value,10);
+    parts[p].pages[Number(pg)]=isNaN(n)?'':n;
+    var tab=app.querySelector('.tabs [data-tab="'+p+'"]');
+    if(tab)tab.textContent=tabLabel(Number(p));
+    queueSave();
+  }
+});
+app.addEventListener('click',function(e){
+  if(!parts||!book)return;
+  var el=e.target;
+  if(!el)return;
+  var tab=el.closest?el.closest('[data-tab]'):null;
+  if(tab){activeP=Number(tab.getAttribute('data-tab'));renderBook();return;}
+  if(el.id==='newbook'){newBook();return;}
+  if(el.id==='donebtn'){markDone(activeP);return;}
+});
+// --- generation (Task 4) ---
+// data-gen buttons are rendered by renderSheet; Task 4 attaches Generate handlers here.
 route();
 </script>
 </body>
