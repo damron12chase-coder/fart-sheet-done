@@ -258,11 +258,16 @@ app.addEventListener('input',function(e){
   if(f!==null){parts[p].data[f]=el.value;queueSave();return;}
   var pg=el.getAttribute('data-pg');
   if(pg!==null){
+    var idx=Number(pg);
     var n=parseInt(el.value,10);
-    parts[p].pages[Number(pg)]=isNaN(n)?'':n;
-    var tab=app.querySelector('.tabs [data-tab="'+p+'"]');
-    if(tab)tab.textContent=tabLabel(Number(p));
-    queueSave();
+    if(Number.isFinite(n)&&n>0){
+      parts[p].pages[idx]=n;
+      var tab=app.querySelector('.tabs [data-tab="'+p+'"]');
+      if(tab)tab.textContent=tabLabel(Number(p));
+      queueSave();
+    }else{
+      el.value=parts[p].pages[idx];
+    }
   }
 });
 app.addEventListener('click',function(e){
