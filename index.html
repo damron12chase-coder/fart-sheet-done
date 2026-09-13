@@ -148,11 +148,22 @@ function showAck(){
 function showBook(){
   book=L('book',null);
   parts=L('parts',null);
-  if(!parts||typeof parts!=='object'||!parts['1']||!Array.isArray(parts['1'].pages)){seedParts();S('parts',parts);}
+  if(!partsValid(parts)){seedParts();S('parts',parts);}
   activeP=nextIncompletePart(parts)||1;
   renderBook();
 }
 var book=null,parts=null,activeP=1,saveTimer=null;
+function partsValid(o){
+  if(!o||typeof o!=='object'||Array.isArray(o))return false;
+  for(var p=1;p<=4;p++){
+    var part=o[String(p)];
+    if(!part||typeof part!=='object'||Array.isArray(part))return false;
+    if(!Array.isArray(part.pages)||part.pages.length!==2||typeof part.pages[0]!=='number'||typeof part.pages[1]!=='number')return false;
+    if(typeof part.completed!=='boolean')return false;
+    if(!part.data||typeof part.data!=='object'||Array.isArray(part.data))return false;
+  }
+  return true;
+}
 var DONE_FIELDS=['dev1.name','dev1.quote','dev1.effect','dev1.mood','dev2.name','dev2.quote','dev2.effect','dev2.mood','w1.word','w1.definition','w1.quote','w2.word','w2.definition','w2.quote','w3.word','w3.definition','w3.quote','c1.pages','c1.quote','c1.connection','c2.pages','c2.quote','c2.connection'];
 function seedParts(){parts={};for(var p=1;p<=4;p++){var pg=defaultPages(p);parts[String(p)]={pages:[pg[0],pg[1]],completed:false,data:{}};}}
 function queueSave(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(function(){saveTimer=null;S('parts',parts);},400);}
