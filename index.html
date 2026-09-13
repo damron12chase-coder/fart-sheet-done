@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Draft Friends All Reading Together (F.A.R.T.) reading sheets for any book, and save your progress across visits.">
+<title>F.A.R.T. Sheet Done — F.A.R.T. sheets for any book</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--text:#e6e9ef;--muted:#9aa3b2;--accent:#22c55e;--danger:#ef4444;--border:#2a2f3a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,"Segoe UI",Roboto,sans-serif}
+#app{max-width:640px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:24px}
+.card.center{text-align:center;margin-top:15vh}
+h1{margin:0 0 4px;font-size:26px}
+h2{margin:0 0 12px;font-size:20px}
+.sub{color:var(--muted);margin:0 0 16px}
+input{width:100%;padding:12px;margin:8px 0;border:1px solid var(--border);border-radius:8px;background:#0d0f14;color:var(--text);font-size:16px}
+button{width:100%;padding:12px;margin:6px 0;border:0;border-radius:8px;background:var(--accent);color:#06210f;font-size:16px;font-weight:600;cursor:pointer}
+button.secondary{background:var(--border);color:var(--text);font-weight:400}
+button:disabled{opacity:.6;cursor:default}
+.err{color:var(--danger);margin:8px 0 0}
+.hidden{display:none}
+#results{margin-top:14px}
+.result{display:flex;gap:12px;align-items:center;border:1px solid var(--border);border-radius:10px;padding:10px;margin:10px 0;background:#0d0f14}
+.result img{width:56px;height:84px;object-fit:cover;border-radius:4px;flex-shrink:0}
+.rmeta{flex:1;min-width:0}
+.rtitle{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rauthor,.ryear{color:var(--muted);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.result button{width:auto;margin:0;padding:8px 16px;flex-shrink:0}
+.aiwarn{display:inline-block;background:#7c2d12;color:#fed7aa;border-radius:999px;padding:2px 10px;font-size:13px;margin-bottom:10px}
+.card.warn{border-color:#b45309}
+.card.warn p{margin:0 0 14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="logic.js"></script>
+<script>
+'use strict';
+function L(k,d){try{var v=localStorage.getItem('fsd:'+k);if(v===null)return d;return JSON.parse(v);}catch(e){return d;}}
+function S(k,v){try{localStorage.setItem('fsd:'+k,JSON.stringify(v));}catch(e){}}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+var app=document.getElementById('app');
+function route(){
+  if(!L('unlocked',false)){showGate();return;}
+  var book=L('book',null);
+  if(!book){showSetup();return;}
+  if(!book.ackDone&&!ebookVerifiable(book.ebookAccess)){showAck();return;}
+  showBook();
+}
+function showGate(){
+  app.innerHTML='<div class="card center"><h1>F.A.R.T. Sheet Done</h1><p class="sub">Friends All Reading Together — sheets for any book</p>'+
+    '<form id="gateform"><input id="code" type="password" placeholder="entry code" autocomplete="off"><button type="submit">Enter</button></form>'+
+    '<p id="gateerr" class="err hidden">wrong code</p></div>';
+  document.getElementById('gateform').addEventListener('submit',function(e){
+    e.preventDefault();
+    if(unlockOk(document.getElementById('code').value)){S('unlocked',true);route();}
+    else document.getElementById('gateerr').classList.remove('hidden');
+  });
+}
+function showSetup(){
+  app.innerHTML='<div class="card"><h2>New F.A.R.T. sheet</h2>'+
+    '<input id="name" placeholder="your name" autocomplete="name">'+
+    '<input id="title" placeholder="book title">'+
+    '<input id="author" placeholder="author (optional)">'+
+    '<button id="searchbtn">Search</button>'+
+    '<button id="manualbtn" class="secondary">Not listed — add manually</button>'+
+    '<p id="titlerr" class="err hidden">enter a book title first</p>'+
+    '<p id="searcherr" class="err hidden">search unavailable — use manual</p>'+
+    '<div id="results"></div></div>';
+  document.getElementById('searchbtn').addEventListener('click',doSearch);
+  document.getElementById('manualbtn').addEventListener('click',addManual);
+}
+function doSearch(){
+  var t=document.getElementById('title').value.trim();
+  var a=document.getElementById('author').value.trim();
+  document.getElementById('searcherr').classList.add('hidden');
+  if(!t){document.getElementById('titlerr').classList.remove('hidden');return;}
+  document.getElementById('titlerr').classList.add('hidden');
+  var btn=document.getElementById('searchbtn');
+  btn.disabled=true;btn.textContent='Searching…';
+  fetch('https://openlibrary.org/search.json?q='+encodeURIComponent(t+' '+a)+'&limit=8&fields=title,author_name,cover_i,first_publish_year,ebook_access')
+    .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
+    .then(function(d){renderResults(d.docs||[]);})
+    .catch(function(){document.getElementById('searcherr').classList.remove('hidden');})
+    .finally(function(){btn.disabled=false;btn.textContent='Search';});
+}
+function renderResults(docs){
+  var box=document.getElementById('results');
+  box.innerHTML='';
+  docs.forEach(function(r){
+    var card=document.createElement('div');card.className='result';
+    if(r.cover_i){
+      var img=document.createElement('img');
+      img.src='https://covers.openlibrary.org/b/id/'+encodeURIComponent(r.cover_i)+'-M.jpg';
+      img.alt='';img.loading='lazy';
+      card.appendChild(img);
+    }
+    var meta=document.createElement('div');meta.className='rmeta';
+    var ti=document.createElement('div');ti.className='rtitle';ti.textContent=r.title||'(untitled)';
+    var au=document.createElement('div');au.className='rauthor';au.textContent=(r.author_name||[])[0]||'unknown author';
+    var yr=document.createElement('div');yr.className='ryear';yr.textContent=r.first_publish_year||'';
+    meta.appendChild(ti);meta.appendChild(au);meta.appendChild(yr);
+    card.appendChild(meta);
+    var btn=document.createElement('button');btn.textContent='Pick';
+    btn.addEventListener('click',function(){pickBook(r);});
+    card.appendChild(btn);
+    box.appendChild(card);
+  });
+}
+function pickBook(r){
+  var name=document.getElementById('name').value.trim();
+  var book={title:r.title,author:(r.author_name||[])[0]||'',coverUrl:r.cover_i?'https://covers.openlibrary.org/b/id/'+r.cover_i+'-M.jpg':'',year:r.first_publish_year,ebookAccess:r.ebook_access||'unknown',ackDone:ebookVerifiable(r.ebook_access),studentName:name};
+  S('book',book);route();
+}
+function addManual(){
+  var t=document.getElementById('title').value.trim();
+  if(!t){document.getElementById('titlerr').classList.remove('hidden');return;}
+  var book={title:t,author:document.getElementById('author').value.trim(),coverUrl:'',year:'',ebookAccess:'none',ackDone:false,studentName:document.getElementById('name').value.trim()};
+  S('book',book);route();
+}
+function showAck(){
+  app.innerHTML='<div class="card warn"><span class="aiwarn">AI draft — check quotes</span>'+
+    '<h2>Important — read before generating</h2>'+
+    '<p>The AI cannot read your actual copy of this book. Answers are drafted from general knowledge of the plot. Quotes and page numbers may NOT match your edition. You must replace every quote with a sentence you actually read, and fix page numbers.</p>'+
+    '<form id="ackform"><input id="ackin" placeholder="type: I UNDERSTAND" autocomplete="off"><button type="submit">Continue</button></form>'+
+    '<p id="ackerr" class="err hidden">type I UNDERSTAND to continue</p></div>';
+  document.getElementById('ackform').addEventListener('submit',function(e){
+    e.preventDefault();
+    if(document.getElementById('ackin').value.trim().toUpperCase()==='I UNDERSTAND'){
+      var b=L('book',null);
+      if(b){b.ackDone=true;S('book',b);}
+      route();
+    }else{
+      document.getElementById('ackerr').classList.remove('hidden');
+    }
+  });
+}
+function showBook(){document.getElementById('app').innerHTML='<div id="bookui"></div>';}
+route();
+</script>
+</body>
+</html>
