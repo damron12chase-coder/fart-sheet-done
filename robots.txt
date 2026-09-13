@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://fart-sheet-done.is-a.dev/sitemap.xml
