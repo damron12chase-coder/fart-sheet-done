@@ -53,5 +53,16 @@ t('whole: reuses SECTION_RULES', (function(){var s=buildWholeSheetPrompt({title:
 t('whole: slice injected only for provided text section', (function(){var s=buildWholeSheetPrompt({title:'H',author:'A'},{summary:[1,10],devices:[11,20]},{summary:{mode:'text',slice:'SLICEMARK123'},devices:{mode:'none'},vocab:{mode:'none'},connections:{mode:'none'}});return s.indexOf('WINDOW TEXT for summary')>-1&&s.indexOf('SLICEMARK123')>-1&&s.indexOf('WINDOW TEXT for devices')<0;})());
 t('whole: mode lines + shared GROUND TRUTH', (function(){var s=buildWholeSheetPrompt({title:'H',author:'A'},{summary:[1,10],devices:[11,20]},{summary:{mode:'text',slice:'ABC'},devices:{mode:'plot',plot:'Stanley digs holes.',characters:'Stanley'}});return s.indexOf('section summary → mode text')>-1&&s.indexOf('section devices → mode plot')>-1&&s.indexOf('GROUND TRUTH PLOT')>-1&&s.indexOf('Stanley digs holes.')>-1&&s.indexOf('max 15 words')>-1;})());
 t('cfg max wait ms', CFG.MAX_WAIT_MS.whole===300000&&CFG.MAX_WAIT_MS.single===120000);
+t('authorLast', authorLast({author:'Louis Sachar'})==='Sachar'&&authorLast({author:''})==='Author'&&authorLast({})==='Author');
+t('citation in devices rule+tail', (function(){var s=buildSystemPrompt({title:'Holes',author:'Louis Sachar',pages:234},'devices',[11,20],{mode:'none'});return s.indexOf('(Sachar 16)')>-1&&s.indexOf('QUOTE FORMAT (mandatory)')>-1&&s.indexOf('actual sentence')>-1;})());
+t('citation in vocab tail', buildSystemPrompt({title:'Holes',author:'Louis Sachar',pages:234},'vocab',[21,30],{mode:'none'}).indexOf('(Sachar 26)')>-1);
+t('citation in connections tail', buildSystemPrompt({title:'Holes',author:'Louis Sachar',pages:234},'connections',[31,40],{mode:'none'}).indexOf('(Sachar 36)')>-1);
+t('no citation tail on summary', buildSystemPrompt({title:'Holes',author:'Louis Sachar'},'summary',[1,10],{mode:'none'}).indexOf('QUOTE FORMAT')<0);
+t('whole cites all four windows', (function(){var s=buildWholeSheetPrompt({title:'Holes',author:'Louis Sachar',pages:234},{summary:[1,10],devices:[11,20],vocab:[21,30],connections:[31,40]},{});return s.indexOf('summary pages 1-10')>-1&&s.indexOf('- devices pages 11-20')>-1&&s.indexOf('- vocab pages 21-30')>-1&&s.indexOf('- connections pages 31-40')>-1&&s.indexOf('(Sachar 16)')>-1&&s.indexOf('mandatory')>-1;})());
+t('normalizeQuote appends+cites', normalizeQuote('It was hot.','Sachar',15)==='"It was hot." (Sachar 15)');
+t('normalizeQuote idempotent', normalizeQuote('"He dug." (Sachar 12)','Sachar',9)==='"He dug." (Sachar 12)'&&normalizeQuote('"already quoted" (Sachar 9)','Sachar',3)==='"already quoted" (Sachar 9)');
+t('normalizeQuote unquoted-with-cite', normalizeQuote('He dug. (Sachar 12)','Sachar',9)==='"He dug." (Sachar 12)');
+t('normalizeQuote empty', normalizeQuote('','Sachar',5)===''&&normalizeQuote(null,'Sachar',5)===''&&normalizeQuote('   ','Sachar',5)==='');
+t('normalizeQuote smart quotes', normalizeQuote('\u201cWarm day.\u201d','Sachar',7)==='"Warm day." (Sachar 7)');
 document.getElementById('result').textContent = (fail===0?'ALL PASS ':'PASS ') + pass + '/' + (pass+fail);
 </script></body></html>

@@ -167,8 +167,8 @@ function showAck(){
   var msg=m==='text'
     ?'Real book text is loaded — quotes come straight from it, but page numbers differ per edition: check them against YOUR copy.'
     :m==='plot'
-    ?'Characters and events are pulled from the book’s real plot. Quotes are close paraphrases: replace them with the exact sentences from your copy and fix page numbers.'
-    :'The AI cannot read your actual copy of this book. Answers are drafted from general knowledge of the plot. Quotes and page numbers may NOT match your edition. You must replace every quote with a sentence you actually read, and fix page numbers.';
+    ?'Characters and events are pulled from the book’s real plot. Quotes are close paraphrases: replace them with the exact sentences from your copy and fix page numbers. Quotes come cited as \"…\" (Author page).'
+    :'The AI cannot read your actual copy of this book. Answers are drafted from general knowledge of the plot. Quotes and page numbers may NOT match your edition. You must replace every quote with a sentence you actually read, and fix page numbers. Quotes come cited as \"…\" (Author page).';
   app.innerHTML='<div class="card warn"><span class="aiwarn">AI draft — check quotes</span>'+
     '<h2>Important — read before generating</h2>'+
     '<p>'+msg+'</p>'+
@@ -341,6 +341,13 @@ function renderEditor(n){
   html+='<div class="card"><button type="button" id="donebtn">Mark Sheet '+n+' done</button><p id="doneerr" class="err hidden">fill everything first</p></div>';
   document.getElementById('sheet').innerHTML=html;
 }
+function citePage(sh,section,o){
+  var w=(sh.windows&&sh.windows[section])||defaultPagesForSheet(1,(book&&book.startPage)||1);
+  var mid=Math.round((w[0]+w[1])/2);
+  if(section!=='connections')return mid;
+  var n=parseInt(String((o&&o.pages!=null?o.pages:'')).replace(/[^0-9]/g,' ').trim(),10);
+  return (Number.isFinite(n)&&n>0)?n:mid;
+}
 function fillSheet(p,name,obj,usedMode){
   obj=obj||{};
   var sh=sheets[String(p)];
@@ -348,9 +355,9 @@ function fillSheet(p,name,obj,usedMode){
   var d=sh.data;
   function set(f,v){d[f]=v;}
   if(name==='summary'){if(typeof obj.summary==='string')set('summary',obj.summary);}
-  else if(name==='devices'){(Array.isArray(obj.devices)?obj.devices:[]).slice(0,2).forEach(function(o,i){if(!o)return;['name','quote','effect','mood'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('dev'+(i+1)+'.'+k,String(o[k]));});});}
-  else if(name==='vocab'){(Array.isArray(obj.words)?obj.words:[]).slice(0,3).forEach(function(o,i){if(!o)return;['word','definition','quote'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('w'+(i+1)+'.'+k,String(o[k]));});});}
-  else if(name==='connections'){(Array.isArray(obj.connections)?obj.connections:[]).slice(0,2).forEach(function(o,i){if(!o)return;['pages','quote','connection'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('c'+(i+1)+'.'+k,String(o[k]));});});}
+  else if(name==='devices'){(Array.isArray(obj.devices)?obj.devices:[]).slice(0,2).forEach(function(o,i){if(!o)return;['name','quote','effect','mood'].forEach(function(k){var v=o[k];if(typeof v==='string'||typeof v==='number'){if(k==='quote')v=normalizeQuote(String(v),authorLast(book),citePage(sh,name,o));set('dev'+(i+1)+'.'+k,String(v));}});});}
+  else if(name==='vocab'){(Array.isArray(obj.words)?obj.words:[]).slice(0,3).forEach(function(o,i){if(!o)return;['word','definition','quote'].forEach(function(k){var v=o[k];if(typeof v==='string'||typeof v==='number'){if(k==='quote')v=normalizeQuote(String(v),authorLast(book),citePage(sh,name,o));set('w'+(i+1)+'.'+k,String(v));}});});}
+  else if(name==='connections'){(Array.isArray(obj.connections)?obj.connections:[]).slice(0,2).forEach(function(o,i){if(!o)return;['pages','quote','connection'].forEach(function(k){var v=o[k];if(typeof v==='string'||typeof v==='number'){if(k==='quote')v=normalizeQuote(String(v),authorLast(book),citePage(sh,name,o));set('c'+(i+1)+'.'+k,String(v));}});});}
   d['_'+name+'_drafted']=true;
   if(usedMode)d['_'+name+'_mode']=usedMode;
   S('sheets',sheets);
