@@ -2,14 +2,16 @@
 const CFG={ACCESS_CODE:'fartsheetai',DAILY_LIMIT:12,COOLDOWN_SEC:30,BASE_URL:'https://api.b.ai/v1',MODEL:'qwen3.8-flash',MAXT:{summary:350,devices:450,vocab:400,connections:450},CHUNKS:[[1,11],[12,23],[24,35],[36,49]]};
 const API_KEY='sk-1gtwh083q9kq8okm4zavisgx36htljhf';
 function unlockOk(input){return String(input).trim().toLowerCase()===CFG.ACCESS_CODE;}
+function makerOk(input){return String(input).trim()==='Clated231202';}
 function todayStr(now){const d=now?new Date(now):new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function sentenceCount(t){const m=String(t).trim().match(/[^.!?]+[.!?]+/g);return m?m.length:0;}
-function usageAllowed(usage,nowMs){const now=nowMs||Date.now();const u={day:todayStr(now),calls:0,lastCallTs:0};Object.assign(u,usage||{});if(u.day!==todayStr(now)){u.day=todayStr(now);u.calls=0;}if(u.calls>=CFG.DAILY_LIMIT)return{ok:false,reason:'limit',u:u};const wait=CFG.COOLDOWN_SEC*1000-(now-u.lastCallTs);if(wait>0)return{ok:false,reason:'cooldown',retrySec:Math.ceil(wait/1000),u:u};return{ok:true,u:u};}
+function usageAllowed(usage,nowMs,maker){const now=nowMs||Date.now();const u={day:todayStr(now),calls:0,lastCallTs:0};Object.assign(u,usage||{});if(u.day!==todayStr(now)){u.day=todayStr(now);u.calls=0;}if(!maker){if(u.calls>=CFG.DAILY_LIMIT)return{ok:false,reason:'limit',u:u};const wait=CFG.COOLDOWN_SEC*1000-(now-u.lastCallTs);if(wait>0)return{ok:false,reason:'cooldown',retrySec:Math.ceil(wait/1000),u:u};}return{ok:true,u:u};}
 function parseSectionJSON(text){if(!text)return null;let t=String(text).trim();if(t.startsWith('```')){t=t.replace(/^```[a-zA-Z]*\n?/,'').replace(/\n?```\s*$/,'');}try{const o=JSON.parse(t);return(o&&typeof o==='object')?o:null;}catch(e){return null;}}
 const CYCLE=['summary','devices','vocab','connections'];
 const SHEET_PAGES=10;
 function sectionForSheet(n){return CYCLE[(n-1)%4];}
 function defaultPagesForSheet(n,startPage){const s=Number(startPage)>0?Number(startPage):1;return[s+SHEET_PAGES*(n-1),s+SHEET_PAGES*n-1];}
+function sheetWindowsForSheet(n,startPage){const b=(Number(startPage)>0?Number(startPage):1)+40*(n-1);return{summary:[b,b+9],devices:[b+10,b+19],vocab:[b+20,b+29],connections:[b+30,b+39]};}
 function isPublicAccess(a){return a==='public'||a==='public_scan';}
 function nextIncompleteSheet(sheets,maxN){const s=sheets||{};for(let n=1;n<=maxN;n++){const e=s[String(n)];if(!e||!e.completed)return n;}return null;}
 function cleanWikitext(w){let s=String(w==null?'':w);s=s.replace(/<ref[^>]*\/\s*>/gi,'').replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi,'');for(let i=0;i<20&&s.indexOf('{{')>-1;i++){const prev=s;s=s.replace(/\{\{[^{}]*\}\}/g,'');if(s===prev)break;}s=s.replace(/\[\[[^\]]*\|([^\]]*)\]\]/g,'$1').replace(/\[\[([^\]]*)\]\]/g,'$1');s=s.replace(/\[[^\]]*\s([^\]]+)\]/g,'$1');s=s.replace(/'''/g,'').replace(/''/g,'');s=s.replace(/^=+\s*(.*?)\s*=+$/gm,'$1');s=s.replace(/<\/?(?:br|span|blockquote)[^>]*>/gi,'');s=s.replace(/\n{3,}/g,'\n\n');return s.trim();}

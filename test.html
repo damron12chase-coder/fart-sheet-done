@@ -23,7 +23,9 @@ t('pages sheet2', JSON.stringify(defaultPagesForSheet(2))==='[11,20]');
 t('pages (2,21) per formula', JSON.stringify(defaultPagesForSheet(2,21))==='[31,40]');
 t('pages (1,21) window', JSON.stringify(defaultPagesForSheet(1,21))==='[21,30]');
 t('pages (5,45) per formula', JSON.stringify(defaultPagesForSheet(5,45))==='[85,94]');
-t('pages (1,45) window', JSON.stringify(defaultPagesForSheet(1,45))==='[45,54]');
+t('pages start45 window', JSON.stringify(defaultPagesForSheet(1,45))==='[45,54]');
+t('windows (1,1)', (function(){var w=sheetWindowsForSheet(1,1);return JSON.stringify(w)==='{"summary":[1,10],"devices":[11,20],"vocab":[21,30],"connections":[31,40]}';})());
+t('windows (2,21) full', (function(){var w=sheetWindowsForSheet(2,21);return JSON.stringify(w)==='{"summary":[61,70],"devices":[71,80],"vocab":[81,90],"connections":[91,100]}';})());
 t('public access', isPublicAccess('public')===true && isPublicAccess('public_scan')===true && isPublicAccess('borrowable')===false);
 t('next sheet', nextIncompleteSheet({'1':{completed:true},'2':{completed:false}},2)===2);
 t('next sheet all done', nextIncompleteSheet({'1':{completed:true},'2':{completed:true}},2)===null);
@@ -41,5 +43,10 @@ t('sysprompt devices list', buildSystemPrompt({title:'X',author:'Y'},'devices',[
 t('userprompt', buildUserPrompt({title:'Holes'},'vocab').indexOf('vocab')>-1);
 t('userprompt pages', buildUserPrompt({title:'Holes'},'summary',[1,10]).indexOf('1-10')>-1);
 t('api key baked', API_KEY.length>10 && API_KEY.startsWith('sk-'));
+t('makerOk exact true', makerOk('Clated231202')===true);
+t('makerOk trims (per note)', makerOk(' Clated231202 ')===true);
+t('makerOk case-exact false', makerOk('clated231202')===false&&makerOk('WRONG')===false&&makerOk('')===false);
+t('usageAllowed maker bypass', usageAllowed({day:todayStr(),calls:999,lastCallTs:Date.now()},Date.now(),true).ok===true);
+t('usageAllowed non-maker still gated', usageAllowed({day:todayStr(),calls:50,lastCallTs:0},Date.now()).ok===false);
 document.getElementById('result').textContent = (fail===0?'ALL PASS ':'PASS ') + pass + '/' + (pass+fail);
 </script></body></html>

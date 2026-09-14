@@ -42,6 +42,10 @@ button.active{outline:2px solid var(--accent)}
 .chip{display:inline-block;background:#14532d;color:#bbf7d0;border-radius:999px;padding:2px 10px;font-size:13px;margin:10px 6px 0 0}
 #app{padding-bottom:72px}
 #offline{position:fixed;top:0;left:0;right:0;z-index:5;background:#7c2d12;color:#fed7aa;text-align:center;padding:8px 16px;font-size:14px}
+.makerrow{margin-top:12px;text-align:center;font-size:13px;color:var(--muted)}
+.makerrow input{width:120px;display:inline-block;margin:0;padding:6px}
+.makerrow button{width:auto;display:inline-block;margin:0;padding:6px 12px;font-size:13px;font-weight:400}
+.thinking{display:block;color:var(--muted);font-size:14px;margin-top:4px}
 #usage{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--card);border-top:1px solid var(--border);color:var(--muted);text-align:center;padding:8px 16px;font-size:14px}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:52px;z-index:6;background:#0d0f14;border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:8px;max-width:90vw;box-shadow:0 4px 16px rgba(0,0,0,.4)}
 </style>
@@ -60,14 +64,16 @@ function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'
 function bookKeyOf(b){return String((b&&b.title)||'')+'|'+String((b&&b.author)||'');}
 function normalIa(ia){if(Array.isArray(ia))return ia.filter(Boolean).slice(0,3);if(typeof ia==='string'&&ia)return[ia];return[];}
 var SECTIONS={summary:'Summary',devices:'Literary Devices',vocab:'Vocabulary',connections:'Connections'};
+var SECKEYS=['summary','devices','vocab','connections'];
 var SECTION_FIELDS={
   summary:['summary'],
   devices:['dev1.name','dev1.quote','dev1.effect','dev1.mood','dev2.name','dev2.quote','dev2.effect','dev2.mood'],
   vocab:['w1.word','w1.definition','w1.quote','w2.word','w2.definition','w2.quote','w3.word','w3.definition','w3.quote'],
   connections:['c1.pages','c1.quote','c1.connection','c2.pages','c2.quote','c2.connection']
 };
+var ALLFIELDS=SECTION_FIELDS.summary.concat(SECTION_FIELDS.devices,SECTION_FIELDS.vocab,SECTION_FIELDS.connections);
 var app=document.getElementById('app');
-var book=null,sheets=null,activeS=1,saveTimer=null;
+var book=null,sheets=null,activeS=1,saveTimer=null,MAKER=L('maker',false);
 function route(){
   if(!L('unlocked',false)){showGate();return;}
   var b=L('book',null);
@@ -75,10 +81,14 @@ function route(){
   if(!b.ackDone){showAck();return;}
   showBook();
 }
+function makerRowHtml(){
+  if(MAKER)return '<div class="makerrow"><span class="chip">★ MAKER MODE — unlimited</span> <button type="button" class="secondary" data-mk="exit">Exit</button></div>';
+  return '<div class="makerrow">Are you the maker? <input class="makerin" type="password" autocomplete="off"> <button type="button" class="secondary" data-mk="unlock">Unlock</button></div>';
+}
 function showGate(){
   app.innerHTML='<div class="card center"><h1>F.A.R.T. Sheet Done</h1><p class="sub">Friends All Reading Together — sheets for any book</p>'+
     '<form id="gateform"><input id="code" type="password" placeholder="entry code" autocomplete="off"><button type="submit">Enter</button></form>'+
-    '<p id="gateerr" class="err hidden">wrong code</p></div>';
+    '<p id="gateerr" class="err hidden">wrong code</p>'+makerRowHtml()+'</div>';
   document.getElementById('gateform').addEventListener('submit',function(e){
     e.preventDefault();
     if(unlockOk(document.getElementById('code').value)){S('unlocked',true);route();}
@@ -225,15 +235,21 @@ function updateChips(){
   if(booktextFor(book))h+='<span class="chip">REAL TEXT ✓</span>';
   el.innerHTML=h;
 }
-function sheetMode(s){return (s&&s.usedMode)||groundingMode(book);}
+function sectionMode(s,sec){
+  if(s&&s.data&&typeof s.data['_'+sec+'_mode']==='string')return s.data['_'+sec+'_mode'];
+  return groundingMode(book);
+}
 function refreshBadges(){
   if(book){
-    var w=document.getElementById('warnslot');
-    if(w)w.innerHTML=sheetMode(sheets&&sheets[String(activeS)])==='text'?'':'<span class="aiwarn">AI draft — check quotes</span>';
+    var s=sheets&&sheets[String(activeS)];
+    SECKEYS.forEach(function(sec){
+      var w=document.getElementById('warnslot-'+sec);
+      if(w)w.innerHTML=sectionMode(s,sec)==='text'?'':'<span class="aiwarn">AI draft — check quotes</span>';
+    });
   }
   updateChips();
 }
-// --- sheets ---
+// --- sheets (v3: one sheet, four section-windows) ---
 function showBook(){
   book=L('book',null);
   sheets=L('sheets',null);
@@ -249,24 +265,28 @@ function sheetsValid(o){
   for(var n=1;n<=ks.length;n++){
     var s=o[String(n)];
     if(!s||typeof s!=='object'||Array.isArray(s))return false;
-    if(s.section!==sectionForSheet(n))return false;
-    if(!Array.isArray(s.pages)||s.pages.length!==2||typeof s.pages[0]!=='number'||typeof s.pages[1]!=='number')return false;
+    if(!s.windows||typeof s.windows!=='object'||Array.isArray(s.windows))return false;
+    for(var q=0;q<SECKEYS.length;q++){
+      var w=s.windows[SECKEYS[q]];
+      if(!Array.isArray(w)||w.length!==2||typeof w[0]!=='number'||typeof w[1]!=='number')return false;
+    }
     if(typeof s.completed!=='boolean')return false;
     if(!s.data||typeof s.data!=='object'||Array.isArray(s.data))return false;
   }
   return true;
 }
-function seedSheets(sp){sheets={};for(var n=1;n<=4;n++){sheets[String(n)]={section:sectionForSheet(n),pages:defaultPagesForSheet(n,sp||1),completed:false,data:{}};}}
+function seedSheets(sp){sheets={};for(var n=1;n<=4;n++){sheets[String(n)]={windows:sheetWindowsForSheet(n,sp||1),completed:false,data:{}};}}
 function sheetCount(){var m=0;Object.keys(sheets||{}).forEach(function(k){var n=parseInt(k,10);if(n>m)m=n;});return m;}
-function bookFinished(){return book&&Number(book.pages)>0&&defaultPagesForSheet(sheetCount()+1,book.startPage||1)[0]>Number(book.pages);}
+function nextBase(){return (Number(book&&book.startPage)||1)+40*sheetCount();}
+function bookFinished(){return book&&Number(book.pages)>0&&nextBase()>Number(book.pages);}
 function queueSave(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(function(){saveTimer=null;S('sheets',sheets);},400);}
-function sheetLabel(n){var s=sheets[String(n)];return 'Sheet '+n+' — '+SECTIONS[s.section]+' (pp '+s.pages[0]+'–'+s.pages[1]+')'+(s.completed?' ✓':'');}
+function sheetLabel(n){var s=sheets[String(n)];var w=s.windows;return 'Sheet '+n+' (pp '+w.summary[0]+'–'+w.connections[1]+')'+(s.completed?' ✓':'');}
 function renderBook(){
   var count=sheetCount();
   var n=nextIncompleteSheet(sheets,count+1);
   if(n&&n>count&&bookFinished())n=nextIncompleteSheet(sheets,count);
   var html='<div class="card">'+
-    '<p class="sub" style="margin:0 0 10px">Continue <strong>'+esc(book.title)+'</strong> — '+(n?'Sheet '+n+' ('+esc(SECTIONS[sectionForSheet(n)])+')':'all done')+'</p>'+
+    '<p class="sub" style="margin:0 0 10px">Continue <strong>'+esc(book.title)+'</strong> — '+(n?'Sheet '+n:'all done')+'</p>'+
     '<div style="display:flex;gap:12px;align-items:center">'+
     (book.coverUrl?'<img class="coverimg" src="'+esc(book.coverUrl)+'" alt="" loading="lazy">':'')+
     '<div class="rmeta"><div class="rtitle">'+esc(book.title)+'</div>'+
@@ -274,6 +294,7 @@ function renderBook(){
     (book.studentName?'<div class="rauthor">'+esc(book.studentName)+'</div>':'')+
     (book.year?'<div class="ryear">'+esc(book.year)+'</div>':'')+'</div></div>'+
     '<div id="gchips"></div>'+
+    makerRowHtml()+
     '<div class="sheetlist">';
   for(var i=1;i<=count;i++){html+='<button type="button" class="secondary sheetrow'+(i===activeS?' active':'')+'" data-sheet="'+i+'">'+esc(sheetLabel(i))+'</button>';}
   html+='</div>'+
@@ -286,34 +307,42 @@ function renderBook(){
 function renderEditor(n){
   var s=sheets[String(n)];
   if(!s)return;
-  var warn=sheetMode(s)!=='text';
   function fld(f,label,ta){
     var v=s.data[f];
     var e=esc(v==null?'':v);
     return '<label class="fld">'+label+'</label>'+(ta?'<textarea data-s="'+n+'" data-f="'+f+'">'+e+'</textarea>':'<input data-s="'+n+'" data-f="'+f+'" value="'+e+'">');
   }
-  var html='<div class="card"><h2>Sheet '+n+' — '+esc(SECTIONS[s.section])+'</h2>'+
+  var html='<div class="card"><h2>Sheet '+n+'</h2>'+
     '<label class="fld">Name</label><input id="studentname" autocomplete="name" value="'+esc(book.studentName||'')+'">'+
-    '<label class="fld">Book Title / Author</label><input readonly tabindex="-1" value="'+esc(book.title+(book.author?' — '+book.author:''))+'">'+
-    '<label class="fld">Specific page numbers read:</label>'+
-    '<div class="pgrow"><input type="number" min="1" data-s="'+n+'" data-pg="0" value="'+esc(s.pages[0])+'">'+
-    '<span>to</span>'+
-    '<input type="number" min="1" data-s="'+n+'" data-pg="1" value="'+esc(s.pages[1])+'"></div></div>';
-  var body='',gen='';
-  if(s.section==='summary'){body=fld('summary','Summary — at least 5 sentences',true);gen='summary';}
-  else if(s.section==='devices'){for(var i=1;i<=2;i++){body+='<h3>Device '+i+'</h3>'+fld('dev'+i+'.name','Device name',false)+fld('dev'+i+'.quote','Quote',true)+fld('dev'+i+'.effect','Effect on reader',true)+fld('dev'+i+'.mood','Mood / tone',true);}gen='devices';}
-  else if(s.section==='vocab'){for(var j=1;j<=3;j++){body+='<h3>Word '+j+'</h3>'+fld('w'+j+'.word','Word',false)+fld('w'+j+'.definition','Definition',true)+fld('w'+j+'.quote','Quote using the word',true);}gen='vocab';}
-  else if(s.section==='connections'){for(var k=1;k<=2;k++){body+='<h3>Connection '+k+'</h3>'+fld('c'+k+'.pages','Page number(s)',false)+fld('c'+k+'.quote','Quote',true)+fld('c'+k+'.connection','Why it stood out',true);}gen='connections';}
-  html+='<div class="card"><h2>'+esc(SECTIONS[s.section])+'</h2>'+
-    '<span id="warnslot">'+(warn?'<span class="aiwarn">AI draft — check quotes</span>':'')+'</span>'+body+
-    '<button type="button" class="secondary" data-gen="'+gen+'">Generate</button></div>'+
-    '<div class="card"><button type="button" id="donebtn">Mark Sheet '+n+' done</button><p id="doneerr" class="err hidden">fill this section first</p></div>';
+    '<label class="fld">Book Title / Author</label><input readonly tabindex="-1" value="'+esc(book.title+(book.author?' — '+book.author:''))+'"></div>';
+  function secCard(sec,body){
+    var w=s.windows[sec];
+    return '<div class="card"><h2>'+esc(SECTIONS[sec])+'</h2>'+
+      '<span id="warnslot-'+sec+'">'+(sectionMode(s,sec)==='text'?'':'<span class="aiwarn">AI draft — check quotes</span>')+'</span>'+
+      '<label class="fld">Specific page numbers read:</label>'+
+      '<div class="pgrow"><input type="number" min="1" data-p="'+n+'" data-sec="'+sec+'" data-pg="0" value="'+esc(w[0])+'">'+
+      '<span>to</span>'+
+      '<input type="number" min="1" data-p="'+n+'" data-sec="'+sec+'" data-pg="1" value="'+esc(w[1])+'"></div>'+
+      body+
+      '<button type="button" class="secondary" data-gen="'+sec+'">Generate</button></div>';
+  }
+  var dv='';
+  for(var i=1;i<=2;i++){dv+='<h3>Device '+i+'</h3>'+fld('dev'+i+'.name','Device name',false)+fld('dev'+i+'.quote','Quote',true)+fld('dev'+i+'.effect','Effect on reader',true)+fld('dev'+i+'.mood','Mood / tone',true);}
+  var vw='';
+  for(var j=1;j<=3;j++){vw+='<h3>Word '+j+'</h3>'+fld('w'+j+'.word','Word',false)+fld('w'+j+'.definition','Definition',true)+fld('w'+j+'.quote','Quote using the word',true);}
+  var cw='';
+  for(var k=1;k<=2;k++){cw+='<h3>Connection '+k+'</h3>'+fld('c'+k+'.pages','Page number(s)',false)+fld('c'+k+'.quote','Quote',true)+fld('c'+k+'.connection','Why it stood out',true);}
+  html+=secCard('summary',fld('summary','Summary — at least 5 sentences',true));
+  html+=secCard('devices',dv);
+  html+=secCard('vocab',vw);
+  html+=secCard('connections',cw);
+  html+='<div class="card"><button type="button" id="donebtn">Mark Sheet '+n+' done</button><p id="doneerr" class="err hidden">fill everything first</p></div>';
   document.getElementById('sheet').innerHTML=html;
 }
 function fillSheet(p,name,obj,usedMode){
   obj=obj||{};
   var sh=sheets[String(p)];
-  if(!sh||sh.section!==name)return;
+  if(!sh||SECKEYS.indexOf(name)<0)return;
   var d=sh.data;
   function set(f,v){d[f]=v;}
   if(name==='summary'){if(typeof obj.summary==='string')set('summary',obj.summary);}
@@ -321,7 +350,7 @@ function fillSheet(p,name,obj,usedMode){
   else if(name==='vocab'){(Array.isArray(obj.words)?obj.words:[]).slice(0,3).forEach(function(o,i){if(!o)return;['word','definition','quote'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('w'+(i+1)+'.'+k,String(o[k]));});});}
   else if(name==='connections'){(Array.isArray(obj.connections)?obj.connections:[]).slice(0,2).forEach(function(o,i){if(!o)return;['pages','quote','connection'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('c'+(i+1)+'.'+k,String(o[k]));});});}
   d['_'+name+'_drafted']=true;
-  if(usedMode)sh.usedMode=usedMode;
+  if(usedMode)d['_'+name+'_mode']=usedMode;
   S('sheets',sheets);
   if(Number(p)===Number(activeS))renderEditor(Number(p));
 }
@@ -329,10 +358,8 @@ function markDone(n){
   var s=sheets[String(n)];
   if(!s)return;
   var d=s.data;
-  var fields=SECTION_FIELDS[s.section]||[];
-  var ok=true;
-  if(s.section==='summary')ok=sentenceCount(String(d['summary']||''))>=5;
-  for(var i=0;ok&&i<fields.length;i++){if(!String(d[fields[i]]||'').trim())ok=false;}
+  var ok=sentenceCount(String(d['summary']||''))>=5;
+  for(var i=0;ok&&i<ALLFIELDS.length;i++){if(!String(d[ALLFIELDS[i]]||'').trim())ok=false;}
   if(!ok){var err=document.getElementById('doneerr');if(err&&err.classList)err.classList.remove('hidden');return;}
   s.completed=true;
   S('sheets',sheets);
@@ -341,7 +368,7 @@ function markDone(n){
 function addSheet(){
   if(bookFinished())return;
   var n=sheetCount()+1;
-  sheets[String(n)]={section:sectionForSheet(n),pages:defaultPagesForSheet(n,(book&&book.startPage)||1),completed:false,data:{}};
+  sheets[String(n)]={windows:sheetWindowsForSheet(n,(book&&book.startPage)||1),completed:false,data:{}};
   S('sheets',sheets);
   activeS=n;
   renderBook();
@@ -361,7 +388,7 @@ app.addEventListener('input',function(e){
   var el=e.target;
   if(!el||!el.getAttribute)return;
   if(el.id==='studentname'){book.studentName=el.value;S('book',book);return;}
-  var sn=el.getAttribute('data-s');
+  var sn=el.getAttribute('data-s')||el.getAttribute('data-p');
   if(!sn)return;
   var sh=sheets[sn];
   if(!sh)return;
@@ -369,22 +396,33 @@ app.addEventListener('input',function(e){
   if(f!==null){sh.data[f]=el.value;queueSave();return;}
   var pg=el.getAttribute('data-pg');
   if(pg!==null){
+    var sec=el.getAttribute('data-sec');
+    var w=sec&&sh.windows?sh.windows[sec]:null;
+    if(!w)return;
     var idx=Number(pg);
     var n=parseInt(el.value,10);
     if(Number.isFinite(n)&&n>0){
-      sh.pages[idx]=n;
+      w[idx]=n;
       var row=app.querySelector?app.querySelector('.sheetrow[data-sheet="'+sn+'"]'):null;
       if(row)row.textContent=sheetLabel(Number(sn));
       queueSave();
     }else{
-      el.value=sh.pages[idx];
+      el.value=w[idx];
     }
   }
 });
 app.addEventListener('click',function(e){
-  if(!sheets||!book)return;
   var el=e.target;
   if(!el)return;
+  var mk=el.getAttribute?el.getAttribute('data-mk'):null;
+  if(mk==='unlock'){
+    var inp=el.parentNode&&el.parentNode.querySelector?el.parentNode.querySelector('.makerin'):null;
+    if(makerOk(inp&&inp.value)){S('maker',true);MAKER=true;route();updateFooter();}
+    else toast('wrong maker code');
+    return;
+  }
+  if(mk==='exit'){S('maker',false);MAKER=false;route();updateFooter();return;}
+  if(!sheets||!book)return;
   var row=el.closest?el.closest('[data-sheet]'):null;
   if(row){activeS=Number(row.getAttribute('data-sheet'));renderBook();return;}
   if(el.id==='newbook'){newBook();return;}
@@ -411,7 +449,7 @@ function coolingSec(){
   return wait>0?Math.ceil(wait/1000):0;
 }
 function setGenButtons(){
-  var dis=busy||isOffline()||coolingSec()>0;
+  var dis=busy||isOffline()||(MAKER?false:coolingSec()>0);
   genButtons().forEach(function(b){
     b.disabled=dis;
     if(!dis)b.textContent='Generate';
@@ -419,8 +457,9 @@ function setGenButtons(){
 }
 function updateFooter(){
   var u=usageView();
-  var sec=coolingSec();
-  document.getElementById('usage').textContent='AI calls today: '+(typeof u.calls==='number'?u.calls:0)+'/'+CFG.DAILY_LIMIT+(sec>0?' — wait '+sec+'s':'');
+  var calls=typeof u.calls==='number'?u.calls:0;
+  var sec=MAKER?0:coolingSec();
+  document.getElementById('usage').textContent=(MAKER?'★ MAKER MODE — unlimited · AI calls today: '+calls+' · maker':'AI calls today: '+calls+'/'+CFG.DAILY_LIMIT)+(sec>0?' — wait '+sec+'s':'');
   setGenButtons();
 }
 function toast(msg){
@@ -428,33 +467,47 @@ function toast(msg){
   el.textContent=msg;
   el.classList.remove('hidden');
   if(toastTimer)clearTimeout(toastTimer);
-  toastTimer=setTimeout(function(){el.classList.add('hidden');},4000);
+  toastTimer=setTimeout(function(){el.classList.add('hidden');},8000);
+}
+var thinkingEl=null;
+function clearThinking(){
+  if(thinkingEl&&thinkingEl.parentNode&&thinkingEl.parentNode.removeChild)thinkingEl.parentNode.removeChild(thinkingEl);
+  thinkingEl=null;
+}
+function setThinking(btn){
+  clearThinking();
+  thinkingEl=document.createElement('span');
+  thinkingEl.className='thinking';
+  thinkingEl.textContent='AI is thinking…';
+  if(btn&&btn.parentNode&&btn.parentNode.insertBefore)btn.parentNode.insertBefore(thinkingEl,btn.nextSibling);
 }
 function generate(p,section){
   if(busy||!CFG.MAXT[section])return;
-  var g=usageAllowed(L('usage',{}),Date.now());
+  var g=usageAllowed(L('usage',{}),Date.now(),MAKER);
   if(!g.ok){
-    toast(g.reason==='limit'?'Daily AI limit reached (12). Come back tomorrow.':'Wait '+g.retrySec+'s between AI calls.');
+    toast(g.reason==='limit'?'Daily AI limit reached ('+CFG.DAILY_LIMIT+'). Come back tomorrow.':'Wait '+g.retrySec+'s between AI calls — the button unlocks itself.');
     return;
   }
   g.u.calls++;g.u.lastCallTs=Date.now();g.u.day=todayStr();
   S('usage',g.u);
   busy=true;updateFooter();
-  genButtons().forEach(function(b){if(b.getAttribute('data-gen')===section)b.textContent='…';});
+  genButtons().forEach(function(b){
+    if(b.getAttribute('data-gen')===section){b.textContent='…';setThinking(b);}
+  });
   var bk=L('book',{});
   var sh=sheets[String(p)]||{};
-  var pages=sh.pages||defaultPagesForSheet(1,bk.startPage||1);
+  var win=(sh.windows&&sh.windows[section])||defaultPagesForSheet(1,bk.startPage||1);
   var mode=groundingMode(bk);
   var slice='';
   if(mode==='text'){
-    slice=sliceForWindow(booktextFor(bk).text,Number(bk.pages)||0,pages);
-    if(slice.length<500)mode=(bk.ground&&bk.ground.plot)?'plot':'none';
+    slice=sliceForWindow(booktextFor(bk).text,Number(bk.pages)||0,win);
+    if(slice.length<500)mode=(bk.ground&&String(bk.ground.plot||'').length>200)?'plot':'none';
   }
   var grounding={mode:mode};
   if(mode==='text'){grounding.slice=slice;}
   if(mode==='plot'){grounding.plot=bk.ground.plot;grounding.characters=bk.ground.chars;}
-  var sys=buildSystemPrompt(bk,section,pages,grounding);
-  var usr=buildUserPrompt(bk,section,pages);
+  var sys=buildSystemPrompt(bk,section,win,grounding);
+  var usr=buildUserPrompt(bk,section,win);
   fetch(CFG.BASE_URL+'/chat/completions',{
     method:'POST',
     headers:{'Authorization':'Bearer '+API_KEY,'content-type':'application/json'},
@@ -474,7 +527,7 @@ function generate(p,section){
     });
   })
   .catch(function(){toast('AI is busy — try again in a minute');})
-  .finally(function(){busy=false;setGenButtons();updateFooter();});
+  .finally(function(){busy=false;clearThinking();setGenButtons();updateFooter();});
 }
 function setOnlineBanner(on){
   var el=document.getElementById('offline');
@@ -485,6 +538,12 @@ if(typeof window!=='undefined'&&window.addEventListener){
   window.addEventListener('online',function(){setOnlineBanner(true);});
   window.addEventListener('offline',function(){setOnlineBanner(false);});
 }
+function isV2Shape(o){
+  if(!o||typeof o!=='object'||Array.isArray(o))return false;
+  var ks=Object.keys(o);
+  for(var i=0;i<ks.length;i++){var e=o[ks[i]];if(e&&typeof e==='object'&&(e.section||e.pages))return true;}
+  return false;
+}
 function initMigrate(){
   var p=L('parts',null);
   if(!L('sheets',null)&&p){
@@ -493,6 +552,14 @@ function initMigrate(){
     ar.unshift({book:L('book',null),legacy:{parts:p},savedAt:Date.now()});
     S('archive',ar.slice(0,5));
     S('parts',null);
+  }
+  var v2=L('sheets',null);
+  if(isV2Shape(v2)){
+    var ar2=L('archive',[]);
+    if(!Array.isArray(ar2))ar2=[];
+    ar2.unshift({book:L('book',null),legacyV2:v2,savedAt:Date.now()});
+    S('archive',ar2.slice(0,5));
+    S('sheets',null);
   }
 }
 setInterval(updateFooter,1000);
