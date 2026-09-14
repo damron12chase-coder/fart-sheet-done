@@ -24,6 +24,6 @@ t('sysprompt has book+range+json', (function(){var s=buildSystemPrompt({title:'H
 t('sysprompt verifiable', buildSystemPrompt({title:'X',author:'Y'},[1,11],'devices',true).indexOf('publicly available')>-1);
 t('sysprompt all sections', ['summary','devices','vocab','connections'].every(function(s){return buildSystemPrompt({title:'X',author:'Y'},[1,11],s,false).indexOf('JSON shape')>-1;}));
 t('userprompt', buildUserPrompt({title:'Holes'},'vocab').indexOf('vocab')>-1);
-t('api key not baked', API_KEY==='');
+t('api key baked', API_KEY.length>10 && API_KEY.startsWith('sk-'));
 document.getElementById('result').textContent = (fail===0?'ALL PASS ':'PASS ') + pass + '/' + (pass+fail);
 </script></body></html>

@@ -1,6 +1,6 @@
 'use strict';
 const CFG={ACCESS_CODE:'fartsheetai',DAILY_LIMIT:12,COOLDOWN_SEC:30,BASE_URL:'https://api.b.ai/v1',MODEL:'qwen3.8-flash',MAXT:{summary:350,devices:450,vocab:400,connections:450},CHUNKS:[[1,11],[12,23],[24,35],[36,49]]};
-const API_KEY='';
+const API_KEY='sk-1gtwh083q9kq8okm4zavisgx36htljhf';
 function unlockOk(input){return String(input).trim().toLowerCase()===CFG.ACCESS_CODE;}
 function todayStr(now){const d=now?new Date(now):new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function defaultPages(part){const c=CFG.CHUNKS[part-1];return[c[0],c[1]];}
