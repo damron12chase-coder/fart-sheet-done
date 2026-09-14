@@ -20,6 +20,10 @@ t('sheet cycle 5', sectionForSheet(5)==='summary');
 t('sheet cycle 6', sectionForSheet(6)==='devices');
 t('pages sheet1', JSON.stringify(defaultPagesForSheet(1))==='[1,10]');
 t('pages sheet2', JSON.stringify(defaultPagesForSheet(2))==='[11,20]');
+t('pages (2,21) per formula', JSON.stringify(defaultPagesForSheet(2,21))==='[31,40]');
+t('pages (1,21) window', JSON.stringify(defaultPagesForSheet(1,21))==='[21,30]');
+t('pages (5,45) per formula', JSON.stringify(defaultPagesForSheet(5,45))==='[85,94]');
+t('pages (1,45) window', JSON.stringify(defaultPagesForSheet(1,45))==='[45,54]');
 t('public access', isPublicAccess('public')===true && isPublicAccess('public_scan')===true && isPublicAccess('borrowable')===false);
 t('next sheet', nextIncompleteSheet({'1':{completed:true},'2':{completed:false}},2)===2);
 t('next sheet all done', nextIncompleteSheet({'1':{completed:true},'2':{completed:true}},2)===null);
@@ -27,6 +31,7 @@ t('clean wikitext', (function(){var s=cleanWikitext('<ref>x</ref>Hi [[a|b]] [[c]
 t('plot extract', (function(){var r=extractPlotCharacters('intro\n== Plot ==\nStanley went to camp.\n== Characters ==\nX\n== Themes ==');return r.plot.indexOf('Stanley')>-1&&r.plot.indexOf('Themes')<0&&r.characters.indexOf('X')>-1;})());
 t('slice middle', (function(){var s=sliceForWindow('a'.repeat(100000),100,[51,60]);return s.length>12000&&s.length<14000&&s.length<100000;})());
 t('slice empty', sliceForWindow('',100,[1,10])===''&&sliceForWindow('abc',100,null)==='');
+t('slice capped 24000', (function(){var s=sliceForWindow('a'.repeat(400000),10,[1,10]);return s.length<=24000&&s.length>20000;})());
 t('sysprompt text mode', (function(){var s=buildSystemPrompt({title:'Holes',author:'Louis Sachar',pages:234},'summary',[1,10],{mode:'text',slice:'XYZSLICE'});return s.indexOf('VERBATIM')>-1&&s.indexOf('XYZSLICE')>-1;})());
 t('sysprompt plot mode', (function(){var s=buildSystemPrompt({title:'Holes',author:'Louis Sachar'},'summary',[1,10],{mode:'plot',plot:'Stanley digs holes at Camp Green Lake.',characters:'Stanley Yelnats'});return s.indexOf('GROUND TRUTH')>-1&&s.indexOf('Stanley digs holes')>-1;})());
 t('sysprompt none mode', buildSystemPrompt({title:'Holes',author:'Louis Sachar'},'summary',[1,10],{mode:'none'}).indexOf('must fix')>-1);

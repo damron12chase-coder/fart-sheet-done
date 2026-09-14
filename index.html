@@ -55,7 +55,7 @@ button.active{outline:2px solid var(--accent)}
 <script>
 'use strict';
 function L(k,d){try{var v=localStorage.getItem('fsd:'+k);if(v===null)return d;return JSON.parse(v);}catch(e){return d;}}
-function S(k,v){try{localStorage.setItem('fsd:'+k,JSON.stringify(v));}catch(e){}}
+function S(k,v){try{localStorage.setItem('fsd:'+k,JSON.stringify(v));}catch(e){try{toast('Storage is full — use New book to archive old runs');}catch(e2){}}}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function bookKeyOf(b){return String((b&&b.title)||'')+'|'+String((b&&b.author)||'');}
 function normalIa(ia){if(Array.isArray(ia))return ia.filter(Boolean).slice(0,3);if(typeof ia==='string'&&ia)return[ia];return[];}
@@ -88,6 +88,8 @@ function showGate(){
 function showSetup(){
   app.innerHTML='<div class="card"><h2>New F.A.R.T. sheet</h2>'+
     '<input id="name" placeholder="your name" autocomplete="name">'+
+    '<label class="fld">I have read up to page:</label>'+
+    '<input id="startpg" type="number" min="0" value="0" placeholder="0 = from the start">'+
     '<input id="title" placeholder="book title">'+
     '<input id="author" placeholder="author (optional)">'+
     '<button id="searchbtn">Search</button>'+
@@ -137,15 +139,16 @@ function renderResults(docs){
 }
 function pickBook(r){
   var name=document.getElementById('name').value.trim();
-  var b={title:r.title,author:(r.author_name||[])[0]||'',coverUrl:r.cover_i?'https://covers.openlibrary.org/b/id/'+r.cover_i+'-M.jpg':'',year:r.first_publish_year,ebookAccess:r.ebook_access||'unknown',ackDone:false,studentName:name,pages:Number(r.number_of_pages_median)||0,iaIds:normalIa(r.ia),ground:null};
+  var b={title:r.title,author:(r.author_name||[])[0]||'',coverUrl:r.cover_i?'https://covers.openlibrary.org/b/id/'+r.cover_i+'-M.jpg':'',year:r.first_publish_year,ebookAccess:r.ebook_access||'unknown',ackDone:false,studentName:name,pages:Number(r.number_of_pages_median)||0,iaIds:normalIa(r.ia),ground:null,startPage:readStartPage()};
   S('book',b);S('booktext',null);route();
 }
 function addManual(){
   var t=document.getElementById('title').value.trim();
   if(!t){document.getElementById('titlerr').classList.remove('hidden');return;}
-  var b={title:t,author:document.getElementById('author').value.trim(),coverUrl:'',year:'',ebookAccess:'none',ackDone:false,studentName:document.getElementById('name').value.trim(),pages:0,iaIds:[],ground:null};
+  var b={title:t,author:document.getElementById('author').value.trim(),coverUrl:'',year:'',ebookAccess:'none',ackDone:false,studentName:document.getElementById('name').value.trim(),pages:0,iaIds:[],ground:null,startPage:readStartPage()};
   S('book',b);S('booktext',null);route();
 }
+function readStartPage(){var el=document.getElementById('startpg');var v=el?parseInt(el.value,10):0;if(!Number.isFinite(v)||v<0)v=0;return Math.max(1,v+1);}
 function booktextFor(b){var bt=L('booktext',null);return(bt&&bt.text&&bt.bookKey===bookKeyOf(b))?bt:null;}
 function groundingMode(b){if(booktextFor(b))return'text';if(b&&b.ground&&b.ground.plot)return'plot';return'none';}
 function showAck(){
@@ -178,7 +181,7 @@ function startGrounding(){
   var key=bookKeyOf(book);
   if(groundingKey===key)return;
   groundingKey=key;
-  if(!book.ground)wikiGround();
+  if(!(book.ground&&String(book.ground.plot||'').length>200))wikiGround();
   if(!booktextFor(book)&&isPublicAccess(book.ebookAccess)&&(book.iaIds||[]).length)textGround();
   updateChips();
 }
@@ -222,10 +225,11 @@ function updateChips(){
   if(booktextFor(book))h+='<span class="chip">REAL TEXT ✓</span>';
   el.innerHTML=h;
 }
+function sheetMode(s){return (s&&s.usedMode)||groundingMode(book);}
 function refreshBadges(){
   if(book){
     var w=document.getElementById('warnslot');
-    if(w)w.innerHTML=groundingMode(book)==='text'?'':'<span class="aiwarn">AI draft — check quotes</span>';
+    if(w)w.innerHTML=sheetMode(sheets&&sheets[String(activeS)])==='text'?'':'<span class="aiwarn">AI draft — check quotes</span>';
   }
   updateChips();
 }
@@ -233,7 +237,7 @@ function refreshBadges(){
 function showBook(){
   book=L('book',null);
   sheets=L('sheets',null);
-  if(!sheetsValid(sheets)){seedSheets();S('sheets',sheets);}
+  if(!sheetsValid(sheets)){seedSheets(book.startPage||1);S('sheets',sheets);}
   activeS=nextIncompleteSheet(sheets,sheetCount())||sheetCount();
   renderBook();
   startGrounding();
@@ -252,9 +256,9 @@ function sheetsValid(o){
   }
   return true;
 }
-function seedSheets(){sheets={};for(var n=1;n<=4;n++){sheets[String(n)]={section:sectionForSheet(n),pages:defaultPagesForSheet(n),completed:false,data:{}};}}
+function seedSheets(sp){sheets={};for(var n=1;n<=4;n++){sheets[String(n)]={section:sectionForSheet(n),pages:defaultPagesForSheet(n,sp||1),completed:false,data:{}};}}
 function sheetCount(){var m=0;Object.keys(sheets||{}).forEach(function(k){var n=parseInt(k,10);if(n>m)m=n;});return m;}
-function bookFinished(){return book&&Number(book.pages)>0&&defaultPagesForSheet(sheetCount()+1)[0]>Number(book.pages);}
+function bookFinished(){return book&&Number(book.pages)>0&&defaultPagesForSheet(sheetCount()+1,book.startPage||1)[0]>Number(book.pages);}
 function queueSave(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(function(){saveTimer=null;S('sheets',sheets);},400);}
 function sheetLabel(n){var s=sheets[String(n)];return 'Sheet '+n+' — '+SECTIONS[s.section]+' (pp '+s.pages[0]+'–'+s.pages[1]+')'+(s.completed?' ✓':'');}
 function renderBook(){
@@ -282,7 +286,7 @@ function renderBook(){
 function renderEditor(n){
   var s=sheets[String(n)];
   if(!s)return;
-  var warn=groundingMode(book)!=='text';
+  var warn=sheetMode(s)!=='text';
   function fld(f,label,ta){
     var v=s.data[f];
     var e=esc(v==null?'':v);
@@ -306,7 +310,7 @@ function renderEditor(n){
     '<div class="card"><button type="button" id="donebtn">Mark Sheet '+n+' done</button><p id="doneerr" class="err hidden">fill this section first</p></div>';
   document.getElementById('sheet').innerHTML=html;
 }
-function fillSheet(p,name,obj){
+function fillSheet(p,name,obj,usedMode){
   obj=obj||{};
   var sh=sheets[String(p)];
   if(!sh||sh.section!==name)return;
@@ -317,8 +321,9 @@ function fillSheet(p,name,obj){
   else if(name==='vocab'){(Array.isArray(obj.words)?obj.words:[]).slice(0,3).forEach(function(o,i){if(!o)return;['word','definition','quote'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('w'+(i+1)+'.'+k,String(o[k]));});});}
   else if(name==='connections'){(Array.isArray(obj.connections)?obj.connections:[]).slice(0,2).forEach(function(o,i){if(!o)return;['pages','quote','connection'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('c'+(i+1)+'.'+k,String(o[k]));});});}
   d['_'+name+'_drafted']=true;
+  if(usedMode)sh.usedMode=usedMode;
   S('sheets',sheets);
-  renderEditor(Number(p));
+  if(Number(p)===Number(activeS))renderEditor(Number(p));
 }
 function markDone(n){
   var s=sheets[String(n)];
@@ -336,7 +341,7 @@ function markDone(n){
 function addSheet(){
   if(bookFinished())return;
   var n=sheetCount()+1;
-  sheets[String(n)]={section:sectionForSheet(n),pages:defaultPagesForSheet(n),completed:false,data:{}};
+  sheets[String(n)]={section:sectionForSheet(n),pages:defaultPagesForSheet(n,(book&&book.startPage)||1),completed:false,data:{}};
   S('sheets',sheets);
   activeS=n;
   renderBook();
@@ -438,10 +443,15 @@ function generate(p,section){
   genButtons().forEach(function(b){if(b.getAttribute('data-gen')===section)b.textContent='…';});
   var bk=L('book',{});
   var sh=sheets[String(p)]||{};
-  var pages=sh.pages||defaultPagesForSheet(1);
+  var pages=sh.pages||defaultPagesForSheet(1,bk.startPage||1);
   var mode=groundingMode(bk);
+  var slice='';
+  if(mode==='text'){
+    slice=sliceForWindow(booktextFor(bk).text,Number(bk.pages)||0,pages);
+    if(slice.length<500)mode=(bk.ground&&bk.ground.plot)?'plot':'none';
+  }
   var grounding={mode:mode};
-  if(mode==='text'){grounding.slice=sliceForWindow(booktextFor(bk).text,Number(bk.pages)||0,pages);}
+  if(mode==='text'){grounding.slice=slice;}
   if(mode==='plot'){grounding.plot=bk.ground.plot;grounding.characters=bk.ground.chars;}
   var sys=buildSystemPrompt(bk,section,pages,grounding);
   var usr=buildUserPrompt(bk,section,pages);
@@ -460,7 +470,7 @@ function generate(p,section){
       var content=(env&&Array.isArray(env.choices)&&env.choices[0]&&env.choices[0].message&&typeof env.choices[0].message.content==='string')?env.choices[0].message.content:null;
       var obj=content?parseSectionJSON(content):null;
       if(!obj)toast('AI reply unreadable — hit Generate again');
-      else fillSheet(p,section,obj);
+      else fillSheet(p,section,obj,mode);
     });
   })
   .catch(function(){toast('AI is busy — try again in a minute');})
@@ -476,10 +486,11 @@ if(typeof window!=='undefined'&&window.addEventListener){
   window.addEventListener('offline',function(){setOnlineBanner(false);});
 }
 function initMigrate(){
-  if(!L('sheets',null)&&L('parts',null)){
+  var p=L('parts',null);
+  if(!L('sheets',null)&&p){
     var ar=L('archive',[]);
     if(!Array.isArray(ar))ar=[];
-    ar.unshift({book:L('book',null),legacy:true,savedAt:Date.now()});
+    ar.unshift({book:L('book',null),legacy:{parts:p},savedAt:Date.now()});
     S('archive',ar.slice(0,5));
     S('parts',null);
   }
