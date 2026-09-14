@@ -1,5 +1,5 @@
 'use strict';
-const CFG={ACCESS_CODE:'fartsheetai',DAILY_LIMIT:12,COOLDOWN_SEC:30,BASE_URL:'https://api.b.ai/v1',MODEL:'qwen3.8-flash',MAXT:{summary:350,devices:450,vocab:400,connections:450,whole:1600},CHUNKS:[[1,11],[12,23],[24,35],[36,49]]};
+const CFG={ACCESS_CODE:'fartsheetai',DAILY_LIMIT:12,COOLDOWN_SEC:30,MAX_WAIT_MS:{whole:300000,single:120000},BASE_URL:'https://api.b.ai/v1',MODEL:'qwen3.8-flash',MAXT:{summary:350,devices:450,vocab:400,connections:450,whole:1600},CHUNKS:[[1,11],[12,23],[24,35],[36,49]]};
 const API_KEY='sk-1gtwh083q9kq8okm4zavisgx36htljhf';
 function unlockOk(input){return String(input).trim().toLowerCase()===CFG.ACCESS_CODE;}
 function makerOk(input){return String(input).trim()==='Clated231202';}

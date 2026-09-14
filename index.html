@@ -472,6 +472,13 @@ function toast(msg){
   toastTimer=setTimeout(function(){el.classList.add('hidden');},8000);
 }
 var thinkingEl=null;
+function guardedFetch(url,opts,ms,onTimeout){
+  var ctrl=(typeof AbortController!=='undefined')?new AbortController():null;
+  if(ctrl){opts=Object.assign({},opts,{signal:ctrl.signal});}
+  var timer=null;
+  if(ctrl&&ms>0){timer=setTimeout(function(){onTimeout();ctrl.abort();},ms);}
+  return fetch(url,opts).finally(function(){if(timer)clearTimeout(timer);});
+}
 function clearThinking(){
   if(thinkingEl&&thinkingEl.parentNode&&thinkingEl.parentNode.removeChild)thinkingEl.parentNode.removeChild(thinkingEl);
   thinkingEl=null;
@@ -515,11 +522,12 @@ function generate(p,section){
   if(mode==='plot'){grounding.plot=bk.ground.plot;grounding.characters=bk.ground.chars;}
   var sys=buildSystemPrompt(bk,section,win,grounding);
   var usr=buildUserPrompt(bk,section,win);
-  fetch(CFG.BASE_URL+'/chat/completions',{
+  var timedOut=false;
+  guardedFetch(CFG.BASE_URL+'/chat/completions',{
     method:'POST',
     headers:{'Authorization':'Bearer '+API_KEY,'content-type':'application/json'},
     body:JSON.stringify({model:CFG.MODEL,messages:[{role:'system',content:sys},{role:'user',content:usr}],max_tokens:CFG.MAXT[section],temperature:0.7})
-  })
+  },section==='whole'?CFG.MAX_WAIT_MS.whole:CFG.MAX_WAIT_MS.single,function(){timedOut=true;})
   .then(function(res){
     if(!res.ok){
       toast(res.status===401?'access key was rotated; ask the owner':'AI is busy — try again in a minute');
@@ -533,7 +541,7 @@ function generate(p,section){
       else fillSheet(p,section,obj,mode);
     });
   })
-  .catch(function(){toast('AI is busy — try again in a minute');})
+  .catch(function(){toast(timedOut?'The AI took too long — try again':'AI is busy — try again in a minute');})
   .finally(function(){busy=false;clearThinking();setGenButtons();updateFooter();});
 }
 var WHOLE_WANT={
@@ -567,11 +575,12 @@ function generateWhole(p){
     grounds[sec]=gg;
   });
   var sys=buildWholeSheetPrompt(bk,sh.windows||{},grounds);
-  fetch(CFG.BASE_URL+'/chat/completions',{
+  var timedOut=false;
+  guardedFetch(CFG.BASE_URL+'/chat/completions',{
     method:'POST',
     headers:{'Authorization':'Bearer '+API_KEY,'content-type':'application/json'},
     body:JSON.stringify({model:CFG.MODEL,messages:[{role:'system',content:sys},{role:'user',content:'Fill the whole F.A.R.T. sheet. JSON only.'}],max_tokens:CFG.MAXT.whole,temperature:0.7})
-  })
+  },CFG.MAX_WAIT_MS.whole,function(){timedOut=true;})
   .then(function(res){
     if(!res.ok){
       toast(res.status===401?'access key was rotated; ask the owner':'AI is busy — try again in a minute');
@@ -595,7 +604,7 @@ function generateWhole(p){
       else toast('Whole sheet drafted — fix quotes + page numbers!');
     });
   })
-  .catch(function(){toast('AI is busy — try again in a minute');})
+  .catch(function(){toast(timedOut?'The AI took too long — try again':'AI is busy — try again in a minute');})
   .finally(function(){busy=false;clearThinking();setGenButtons();updateFooter();});
 }
 function setOnlineBanner(on){
