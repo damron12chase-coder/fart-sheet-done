@@ -314,7 +314,9 @@ function renderEditor(n){
   }
   var html='<div class="card"><h2>Sheet '+n+'</h2>'+
     '<label class="fld">Name</label><input id="studentname" autocomplete="name" value="'+esc(book.studentName||'')+'">'+
-    '<label class="fld">Book Title / Author</label><input readonly tabindex="-1" value="'+esc(book.title+(book.author?' — '+book.author:''))+'"></div>';
+    '<label class="fld">Book Title / Author</label><input readonly tabindex="-1" value="'+esc(book.title+(book.author?' — '+book.author:''))+'"></div>'+
+    '<div class="card"><button type="button" data-gen="whole">⚡ Generate whole sheet</button>'+
+    '<p class="sub" style="margin:6px 0 0">All four sections in one AI call.</p></div>';
   function secCard(sec,body){
     var w=s.windows[sec];
     return '<div class="card"><h2>'+esc(SECTIONS[sec])+'</h2>'+
@@ -429,7 +431,7 @@ app.addEventListener('click',function(e){
   if(el.id==='addsheet'){addSheet();return;}
   if(el.id==='donebtn'){markDone(activeS);return;}
   var gen=el.closest?el.closest('[data-gen]'):null;
-  if(gen){var gs=gen.getAttribute('data-gen');if(gs)generate(activeS,gs);return;}
+  if(gen){var gs=gen.getAttribute('data-gen');if(gs==='whole'){generateWhole(activeS);return;}if(gs)generate(activeS,gs);return;}
 });
 // --- generation (Task 4) ---
 var busy=false,toastTimer=null;
@@ -481,6 +483,15 @@ function setThinking(btn){
   thinkingEl.textContent='AI is thinking…';
   if(btn&&btn.parentNode&&btn.parentNode.insertBefore)btn.parentNode.insertBefore(thinkingEl,btn.nextSibling);
 }
+function sectionGrounding(bk,win){
+  var mode=groundingMode(bk);
+  var slice='';
+  if(mode==='text'){
+    slice=sliceForWindow(booktextFor(bk).text,Number(bk.pages)||0,win);
+    if(slice.length<500)mode=(bk.ground&&String(bk.ground.plot||'').length>200)?'plot':'none';
+  }
+  return{mode:mode,slice:slice};
+}
 function generate(p,section){
   if(busy||!CFG.MAXT[section])return;
   var g=usageAllowed(L('usage',{}),Date.now(),MAKER);
@@ -497,14 +508,10 @@ function generate(p,section){
   var bk=L('book',{});
   var sh=sheets[String(p)]||{};
   var win=(sh.windows&&sh.windows[section])||defaultPagesForSheet(1,bk.startPage||1);
-  var mode=groundingMode(bk);
-  var slice='';
-  if(mode==='text'){
-    slice=sliceForWindow(booktextFor(bk).text,Number(bk.pages)||0,win);
-    if(slice.length<500)mode=(bk.ground&&String(bk.ground.plot||'').length>200)?'plot':'none';
-  }
+  var gd=sectionGrounding(bk,win);
+  var mode=gd.mode;
   var grounding={mode:mode};
-  if(mode==='text'){grounding.slice=slice;}
+  if(mode==='text'){grounding.slice=gd.slice;}
   if(mode==='plot'){grounding.plot=bk.ground.plot;grounding.characters=bk.ground.chars;}
   var sys=buildSystemPrompt(bk,section,win,grounding);
   var usr=buildUserPrompt(bk,section,win);
@@ -524,6 +531,68 @@ function generate(p,section){
       var obj=content?parseSectionJSON(content):null;
       if(!obj)toast('AI reply unreadable — hit Generate again');
       else fillSheet(p,section,obj,mode);
+    });
+  })
+  .catch(function(){toast('AI is busy — try again in a minute');})
+  .finally(function(){busy=false;clearThinking();setGenButtons();updateFooter();});
+}
+var WHOLE_WANT={
+  summary:function(o){return typeof o.summary==='string';},
+  devices:function(o){return Array.isArray(o.devices);},
+  vocab:function(o){return Array.isArray(o.words);},
+  connections:function(o){return Array.isArray(o.connections);}
+};
+function generateWhole(p){
+  if(busy)return;
+  var sh=sheets[String(p)];
+  if(!sh)return;
+  var g=usageAllowed(L('usage',{}),Date.now(),MAKER);
+  if(!g.ok){
+    toast(g.reason==='limit'?'Daily AI limit reached ('+CFG.DAILY_LIMIT+'). Come back tomorrow.':'Wait '+g.retrySec+'s between AI calls — the button unlocks itself.');
+    return;
+  }
+  g.u.calls++;g.u.lastCallTs=Date.now();g.u.day=todayStr();
+  S('usage',g.u);
+  busy=true;updateFooter();
+  var wholeBtn=null;
+  genButtons().forEach(function(b){if(b.getAttribute('data-gen')==='whole'){b.textContent='…';wholeBtn=b;}});
+  setThinking(wholeBtn);
+  var bk=L('book',{});
+  var grounds={};
+  SECKEYS.forEach(function(sec){
+    var gd=sectionGrounding(bk,(sh.windows&&sh.windows[sec])||defaultPagesForSheet(1,bk.startPage||1));
+    var gg={mode:gd.mode};
+    if(gd.mode==='text'){gg.slice=gd.slice;}
+    if(gd.mode==='plot'){gg.plot=bk.ground.plot;gg.characters=bk.ground.chars;}
+    grounds[sec]=gg;
+  });
+  var sys=buildWholeSheetPrompt(bk,sh.windows||{},grounds);
+  fetch(CFG.BASE_URL+'/chat/completions',{
+    method:'POST',
+    headers:{'Authorization':'Bearer '+API_KEY,'content-type':'application/json'},
+    body:JSON.stringify({model:CFG.MODEL,messages:[{role:'system',content:sys},{role:'user',content:'Fill the whole F.A.R.T. sheet. JSON only.'}],max_tokens:CFG.MAXT.whole,temperature:0.7})
+  })
+  .then(function(res){
+    if(!res.ok){
+      toast(res.status===401?'access key was rotated; ask the owner':'AI is busy — try again in a minute');
+      return;
+    }
+    return res.text().then(function(txt){
+      var env=parseSectionJSON(txt);
+      var content=(env&&Array.isArray(env.choices)&&env.choices[0]&&env.choices[0].message&&typeof env.choices[0].message.content==='string')?env.choices[0].message.content:null;
+      var obj=content?parseSectionJSON(content):null;
+      var filled=0;
+      if(obj&&typeof obj==='object'&&!Array.isArray(obj)){
+        SECKEYS.forEach(function(sec){
+          var sub=obj[sec];
+          if(sub&&typeof sub==='object'&&WHOLE_WANT[sec](sub)){
+            fillSheet(p,sec,sub,grounds[sec].mode);
+            filled++;
+          }
+        });
+      }
+      if(filled===0)toast('Whole-sheet reply unreadable — use the section buttons below');
+      else toast('Whole sheet drafted — fix quotes + page numbers!');
     });
   })
   .catch(function(){toast('AI is busy — try again in a minute');})
