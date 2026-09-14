@@ -33,12 +33,13 @@ button:disabled{opacity:.6;cursor:default}
 .card.warn p{margin:0 0 14px}
 textarea{width:100%;padding:12px;margin:8px 0;border:1px solid var(--border);border-radius:8px;background:#0d0f14;color:var(--text);font-size:16px;font-family:inherit;min-height:64px;resize:vertical}
 h3{margin:14px 0 2px;font-size:16px}
-.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.tabs button{margin:0;flex:1 1 45%}
 button.active{outline:2px solid var(--accent)}
 .fld{display:block;color:var(--muted);font-size:14px;margin-top:8px}
 .coverimg{width:56px;height:84px;object-fit:cover;border-radius:4px;flex-shrink:0}
 .pgrow{display:flex;gap:8px;align-items:center}
+.sheetlist{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.sheetlist button{text-align:left}
+.chip{display:inline-block;background:#14532d;color:#bbf7d0;border-radius:999px;padding:2px 10px;font-size:13px;margin:10px 6px 0 0}
 #app{padding-bottom:72px}
 #offline{position:fixed;top:0;left:0;right:0;z-index:5;background:#7c2d12;color:#fed7aa;text-align:center;padding:8px 16px;font-size:14px}
 #usage{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--card);border-top:1px solid var(--border);color:var(--muted);text-align:center;padding:8px 16px;font-size:14px}
@@ -56,12 +57,22 @@ button.active{outline:2px solid var(--accent)}
 function L(k,d){try{var v=localStorage.getItem('fsd:'+k);if(v===null)return d;return JSON.parse(v);}catch(e){return d;}}
 function S(k,v){try{localStorage.setItem('fsd:'+k,JSON.stringify(v));}catch(e){}}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function bookKeyOf(b){return String((b&&b.title)||'')+'|'+String((b&&b.author)||'');}
+function normalIa(ia){if(Array.isArray(ia))return ia.filter(Boolean).slice(0,3);if(typeof ia==='string'&&ia)return[ia];return[];}
+var SECTIONS={summary:'Summary',devices:'Literary Devices',vocab:'Vocabulary',connections:'Connections'};
+var SECTION_FIELDS={
+  summary:['summary'],
+  devices:['dev1.name','dev1.quote','dev1.effect','dev1.mood','dev2.name','dev2.quote','dev2.effect','dev2.mood'],
+  vocab:['w1.word','w1.definition','w1.quote','w2.word','w2.definition','w2.quote','w3.word','w3.definition','w3.quote'],
+  connections:['c1.pages','c1.quote','c1.connection','c2.pages','c2.quote','c2.connection']
+};
 var app=document.getElementById('app');
+var book=null,sheets=null,activeS=1,saveTimer=null;
 function route(){
   if(!L('unlocked',false)){showGate();return;}
-  var book=L('book',null);
-  if(!book){showSetup();return;}
-  if(!book.ackDone&&!ebookVerifiable(book.ebookAccess)){showAck();return;}
+  var b=L('book',null);
+  if(!b){showSetup();return;}
+  if(!b.ackDone){showAck();return;}
   showBook();
 }
 function showGate(){
@@ -95,7 +106,7 @@ function doSearch(){
   document.getElementById('titlerr').classList.add('hidden');
   var btn=document.getElementById('searchbtn');
   btn.disabled=true;btn.textContent='Searching…';
-  fetch('https://openlibrary.org/search.json?q='+encodeURIComponent(t+' '+a)+'&limit=8&fields=title,author_name,cover_i,first_publish_year,ebook_access')
+  fetch('https://openlibrary.org/search.json?q='+encodeURIComponent(t+' '+a)+'&limit=8&fields=title,author_name,cover_i,first_publish_year,ebook_access,number_of_pages_median,ia')
     .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
     .then(function(d){renderResults(d.docs||[]);})
     .catch(function(){document.getElementById('searcherr').classList.remove('hidden');})
@@ -126,167 +137,256 @@ function renderResults(docs){
 }
 function pickBook(r){
   var name=document.getElementById('name').value.trim();
-  var book={title:r.title,author:(r.author_name||[])[0]||'',coverUrl:r.cover_i?'https://covers.openlibrary.org/b/id/'+r.cover_i+'-M.jpg':'',year:r.first_publish_year,ebookAccess:r.ebook_access||'unknown',ackDone:ebookVerifiable(r.ebook_access),studentName:name};
-  S('book',book);route();
+  var b={title:r.title,author:(r.author_name||[])[0]||'',coverUrl:r.cover_i?'https://covers.openlibrary.org/b/id/'+r.cover_i+'-M.jpg':'',year:r.first_publish_year,ebookAccess:r.ebook_access||'unknown',ackDone:false,studentName:name,pages:Number(r.number_of_pages_median)||0,iaIds:normalIa(r.ia),ground:null};
+  S('book',b);S('booktext',null);route();
 }
 function addManual(){
   var t=document.getElementById('title').value.trim();
   if(!t){document.getElementById('titlerr').classList.remove('hidden');return;}
-  var book={title:t,author:document.getElementById('author').value.trim(),coverUrl:'',year:'',ebookAccess:'none',ackDone:false,studentName:document.getElementById('name').value.trim()};
-  S('book',book);route();
+  var b={title:t,author:document.getElementById('author').value.trim(),coverUrl:'',year:'',ebookAccess:'none',ackDone:false,studentName:document.getElementById('name').value.trim(),pages:0,iaIds:[],ground:null};
+  S('book',b);S('booktext',null);route();
 }
+function booktextFor(b){var bt=L('booktext',null);return(bt&&bt.text&&bt.bookKey===bookKeyOf(b))?bt:null;}
+function groundingMode(b){if(booktextFor(b))return'text';if(b&&b.ground&&b.ground.plot)return'plot';return'none';}
 function showAck(){
+  var b=L('book',null);
+  var m=b?groundingMode(b):'none';
+  var msg=m==='text'
+    ?'Real book text is loaded — quotes come straight from it, but page numbers differ per edition: check them against YOUR copy.'
+    :m==='plot'
+    ?'Characters and events are pulled from the book’s real plot. Quotes are close paraphrases: replace them with the exact sentences from your copy and fix page numbers.'
+    :'The AI cannot read your actual copy of this book. Answers are drafted from general knowledge of the plot. Quotes and page numbers may NOT match your edition. You must replace every quote with a sentence you actually read, and fix page numbers.';
   app.innerHTML='<div class="card warn"><span class="aiwarn">AI draft — check quotes</span>'+
     '<h2>Important — read before generating</h2>'+
-    '<p>The AI cannot read your actual copy of this book. Answers are drafted from general knowledge of the plot. Quotes and page numbers may NOT match your edition. You must replace every quote with a sentence you actually read, and fix page numbers.</p>'+
+    '<p>'+msg+'</p>'+
     '<form id="ackform"><input id="ackin" placeholder="type: I UNDERSTAND" autocomplete="off"><button type="submit">Continue</button></form>'+
     '<p id="ackerr" class="err hidden">type I UNDERSTAND to continue</p></div>';
   document.getElementById('ackform').addEventListener('submit',function(e){
     e.preventDefault();
     if(document.getElementById('ackin').value.trim().toUpperCase()==='I UNDERSTAND'){
-      var b=L('book',null);
-      if(b){b.ackDone=true;S('book',b);}
+      var bk=L('book',null);
+      if(bk){bk.ackDone=true;S('book',bk);}
       route();
     }else{
       document.getElementById('ackerr').classList.remove('hidden');
     }
   });
 }
+// --- grounding (free fetches, no AI key spent) ---
+var groundingKey=null;
+function startGrounding(){
+  var key=bookKeyOf(book);
+  if(groundingKey===key)return;
+  groundingKey=key;
+  if(!book.ground)wikiGround();
+  if(!booktextFor(book)&&isPublicAccess(book.ebookAccess)&&(book.iaIds||[]).length)textGround();
+  updateChips();
+}
+function wikiGround(){
+  var b=book;
+  var q=encodeURIComponent(String(b.title||'')+' '+(b.author||'')+' novel');
+  fetch('https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch='+q+'&format=json&origin=*&srlimit=1')
+  .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
+  .then(function(d){
+    var hit=d&&d.query&&Array.isArray(d.query.search)?d.query.search[0]:null;
+    if(!hit||!hit.title)throw new Error('no wiki match');
+    return fetch('https://en.wikipedia.org/w/api.php?action=parse&page='+encodeURIComponent(hit.title)+'&prop=wikitext&format=json&origin=*&redirects=1')
+      .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
+      .then(function(p){
+        var wt=p&&p.parse&&p.parse.wikitext?(p.parse.wikitext['*']||p.parse.wikitext.value||''):'';
+        var ex=extractPlotCharacters(wt);
+        b.ground={plot:String(ex.plot||'').slice(0,12000),chars:String(ex.characters||'').slice(0,4000),wikiTitle:hit.title};
+        S('book',b);refreshBadges();
+      });
+  })
+  .catch(function(){b.ground={plot:''};S('book',b);refreshBadges();});
+}
+function textGround(){
+  var b=book,ids=(b.iaIds||[]).slice(0,3),key=bookKeyOf(b);
+  (function tryOne(i){
+    if(i>=ids.length)return;
+    fetch('https://archive.org/download/'+encodeURIComponent(ids[i])+'/'+encodeURIComponent(ids[i])+'_djvu.txt')
+    .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.text();})
+    .then(function(t){
+      if(t&&t.length>50000){S('booktext',{id:ids[i],bookKey:key,text:t.slice(0,400000)});refreshBadges();}
+      else tryOne(i+1);
+    })
+    .catch(function(){tryOne(i+1);});
+  })(0);
+}
+function updateChips(){
+  var el=document.getElementById('gchips');
+  if(!el||!book)return;
+  var h='';
+  if(book.ground&&book.ground.plot)h+='<span class="chip">PLOT-GROUNDED ✓</span>';
+  if(booktextFor(book))h+='<span class="chip">REAL TEXT ✓</span>';
+  el.innerHTML=h;
+}
+function refreshBadges(){
+  if(book){
+    var w=document.getElementById('warnslot');
+    if(w)w.innerHTML=groundingMode(book)==='text'?'':'<span class="aiwarn">AI draft — check quotes</span>';
+  }
+  updateChips();
+}
+// --- sheets ---
 function showBook(){
   book=L('book',null);
-  parts=L('parts',null);
-  if(!partsValid(parts)){seedParts();S('parts',parts);}
-  activeP=nextIncompletePart(parts)||1;
+  sheets=L('sheets',null);
+  if(!sheetsValid(sheets)){seedSheets();S('sheets',sheets);}
+  activeS=nextIncompleteSheet(sheets,sheetCount())||sheetCount();
   renderBook();
+  startGrounding();
 }
-var book=null,parts=null,activeP=1,saveTimer=null;
-function partsValid(o){
+function sheetsValid(o){
   if(!o||typeof o!=='object'||Array.isArray(o))return false;
-  for(var p=1;p<=4;p++){
-    var part=o[String(p)];
-    if(!part||typeof part!=='object'||Array.isArray(part))return false;
-    if(!Array.isArray(part.pages)||part.pages.length!==2||typeof part.pages[0]!=='number'||typeof part.pages[1]!=='number')return false;
-    if(typeof part.completed!=='boolean')return false;
-    if(!part.data||typeof part.data!=='object'||Array.isArray(part.data))return false;
+  var ks=Object.keys(o);
+  if(!ks.length)return false;
+  for(var n=1;n<=ks.length;n++){
+    var s=o[String(n)];
+    if(!s||typeof s!=='object'||Array.isArray(s))return false;
+    if(s.section!==sectionForSheet(n))return false;
+    if(!Array.isArray(s.pages)||s.pages.length!==2||typeof s.pages[0]!=='number'||typeof s.pages[1]!=='number')return false;
+    if(typeof s.completed!=='boolean')return false;
+    if(!s.data||typeof s.data!=='object'||Array.isArray(s.data))return false;
   }
   return true;
 }
-var DONE_FIELDS=['dev1.name','dev1.quote','dev1.effect','dev1.mood','dev2.name','dev2.quote','dev2.effect','dev2.mood','w1.word','w1.definition','w1.quote','w2.word','w2.definition','w2.quote','w3.word','w3.definition','w3.quote','c1.pages','c1.quote','c1.connection','c2.pages','c2.quote','c2.connection'];
-function seedParts(){parts={};for(var p=1;p<=4;p++){var pg=defaultPages(p);parts[String(p)]={pages:[pg[0],pg[1]],completed:false,data:{}};}}
-function queueSave(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(function(){saveTimer=null;S('parts',parts);},400);}
-function tabLabel(p){var part=parts[String(p)];return 'Part '+p+' (pp '+part.pages[0]+'–'+part.pages[1]+')'+(part.completed?' ✓':'');}
+function seedSheets(){sheets={};for(var n=1;n<=4;n++){sheets[String(n)]={section:sectionForSheet(n),pages:defaultPagesForSheet(n),completed:false,data:{}};}}
+function sheetCount(){var m=0;Object.keys(sheets||{}).forEach(function(k){var n=parseInt(k,10);if(n>m)m=n;});return m;}
+function bookFinished(){return book&&Number(book.pages)>0&&defaultPagesForSheet(sheetCount()+1)[0]>Number(book.pages);}
+function queueSave(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(function(){saveTimer=null;S('sheets',sheets);},400);}
+function sheetLabel(n){var s=sheets[String(n)];return 'Sheet '+n+' — '+SECTIONS[s.section]+' (pp '+s.pages[0]+'–'+s.pages[1]+')'+(s.completed?' ✓':'');}
 function renderBook(){
-  var n=nextIncompletePart(parts);
+  var count=sheetCount();
+  var n=nextIncompleteSheet(sheets,count+1);
+  if(n&&n>count&&bookFinished())n=nextIncompleteSheet(sheets,count);
   var html='<div class="card">'+
-    '<p class="sub" style="margin:0 0 10px">Continue <strong>'+esc(book.title)+'</strong> — '+(n?'resume Part '+n:'all done')+'</p>'+
+    '<p class="sub" style="margin:0 0 10px">Continue <strong>'+esc(book.title)+'</strong> — '+(n?'Sheet '+n+' ('+esc(SECTIONS[sectionForSheet(n)])+')':'all done')+'</p>'+
     '<div style="display:flex;gap:12px;align-items:center">'+
     (book.coverUrl?'<img class="coverimg" src="'+esc(book.coverUrl)+'" alt="" loading="lazy">':'')+
     '<div class="rmeta"><div class="rtitle">'+esc(book.title)+'</div>'+
     '<div class="rauthor">'+esc(book.author||'unknown author')+'</div>'+
     (book.studentName?'<div class="rauthor">'+esc(book.studentName)+'</div>':'')+
     (book.year?'<div class="ryear">'+esc(book.year)+'</div>':'')+'</div></div>'+
-    '<div class="tabs">';
-  for(var i=1;i<=4;i++){html+='<button type="button" class="secondary'+(i===activeP?' active':'')+'" data-tab="'+i+'">'+esc(tabLabel(i))+'</button>';}
-  html+='</div><button type="button" id="newbook" class="secondary">New book</button></div><div id="sheet"></div>';
+    '<div id="gchips"></div>'+
+    '<div class="sheetlist">';
+  for(var i=1;i<=count;i++){html+='<button type="button" class="secondary sheetrow'+(i===activeS?' active':'')+'" data-sheet="'+i+'">'+esc(sheetLabel(i))+'</button>';}
+  html+='</div>'+
+    '<button type="button" id="addsheet" class="secondary"'+(bookFinished()?' disabled':'')+'>'+(bookFinished()?'🎉 Book finished':'Add next sheet')+'</button>'+
+    '<button type="button" id="newbook" class="secondary">New book</button></div><div id="sheet"></div>';
   app.innerHTML=html;
-  renderSheet(activeP);
+  updateChips();
+  renderEditor(activeS);
 }
-function renderSheet(p){
-  var part=parts[String(p)];
-  var warn=!ebookVerifiable(book.ebookAccess);
+function renderEditor(n){
+  var s=sheets[String(n)];
+  if(!s)return;
+  var warn=groundingMode(book)!=='text';
   function fld(f,label,ta){
-    var v=part.data[f];
+    var v=s.data[f];
     var e=esc(v==null?'':v);
-    return '<label class="fld">'+label+'</label>'+(ta?'<textarea data-p="'+p+'" data-f="'+f+'">'+e+'</textarea>':'<input data-p="'+p+'" data-f="'+f+'" value="'+e+'">');
+    return '<label class="fld">'+label+'</label>'+(ta?'<textarea data-s="'+n+'" data-f="'+f+'">'+e+'</textarea>':'<input data-s="'+n+'" data-f="'+f+'" value="'+e+'">');
   }
-  function section(title,key,body){
-    return '<div class="card"><h2>'+title+'</h2>'+(warn?'<span class="aiwarn">AI draft — check quotes</span>':'')+body+
-      '<button type="button" class="secondary" data-gen="'+key+'">Generate</button></div>';
-  }
-  var html='<div class="card"><h2>Part '+p+' sheet</h2>'+
+  var html='<div class="card"><h2>Sheet '+n+' — '+esc(SECTIONS[s.section])+'</h2>'+
     '<label class="fld">Name</label><input id="studentname" autocomplete="name" value="'+esc(book.studentName||'')+'">'+
     '<label class="fld">Book Title / Author</label><input readonly tabindex="-1" value="'+esc(book.title+(book.author?' — '+book.author:''))+'">'+
     '<label class="fld">Specific page numbers read:</label>'+
-    '<div class="pgrow"><input type="number" min="1" data-p="'+p+'" data-pg="0" value="'+esc(part.pages[0])+'">'+
+    '<div class="pgrow"><input type="number" min="1" data-s="'+n+'" data-pg="0" value="'+esc(s.pages[0])+'">'+
     '<span>to</span>'+
-    '<input type="number" min="1" data-p="'+p+'" data-pg="1" value="'+esc(part.pages[1])+'"></div></div>';
-  var dv='';
-  for(var i=1;i<=2;i++){dv+='<h3>Device '+i+'</h3>'+fld('dev'+i+'.name','Device name',false)+fld('dev'+i+'.quote','Quote',true)+fld('dev'+i+'.effect','Effect on reader',true)+fld('dev'+i+'.mood','Mood / tone',true);}
-  var vw='';
-  for(var j=1;j<=3;j++){vw+='<h3>Word '+j+'</h3>'+fld('w'+j+'.word','Word',false)+fld('w'+j+'.definition','Definition',true)+fld('w'+j+'.quote','Quote using the word',true);}
-  var cw='';
-  for(var k=1;k<=2;k++){cw+='<h3>Connection '+k+'</h3>'+fld('c'+k+'.pages','Page number(s)',false)+fld('c'+k+'.quote','Quote',true)+fld('c'+k+'.connection','Why it stood out',true);}
-  html+=section('Summary','summary',fld('summary','Summary — at least 5 sentences',true));
-  html+=section('Literary Devices','devices',dv);
-  html+=section('Vocabulary','vocab',vw);
-  html+=section('Connections','connections',cw);
-  html+='<div class="card"><button type="button" id="donebtn">Mark Part '+p+' done</button><p id="doneerr" class="err hidden">fill everything first</p></div>';
+    '<input type="number" min="1" data-s="'+n+'" data-pg="1" value="'+esc(s.pages[1])+'"></div></div>';
+  var body='',gen='';
+  if(s.section==='summary'){body=fld('summary','Summary — at least 5 sentences',true);gen='summary';}
+  else if(s.section==='devices'){for(var i=1;i<=2;i++){body+='<h3>Device '+i+'</h3>'+fld('dev'+i+'.name','Device name',false)+fld('dev'+i+'.quote','Quote',true)+fld('dev'+i+'.effect','Effect on reader',true)+fld('dev'+i+'.mood','Mood / tone',true);}gen='devices';}
+  else if(s.section==='vocab'){for(var j=1;j<=3;j++){body+='<h3>Word '+j+'</h3>'+fld('w'+j+'.word','Word',false)+fld('w'+j+'.definition','Definition',true)+fld('w'+j+'.quote','Quote using the word',true);}gen='vocab';}
+  else if(s.section==='connections'){for(var k=1;k<=2;k++){body+='<h3>Connection '+k+'</h3>'+fld('c'+k+'.pages','Page number(s)',false)+fld('c'+k+'.quote','Quote',true)+fld('c'+k+'.connection','Why it stood out',true);}gen='connections';}
+  html+='<div class="card"><h2>'+esc(SECTIONS[s.section])+'</h2>'+
+    '<span id="warnslot">'+(warn?'<span class="aiwarn">AI draft — check quotes</span>':'')+'</span>'+body+
+    '<button type="button" class="secondary" data-gen="'+gen+'">Generate</button></div>'+
+    '<div class="card"><button type="button" id="donebtn">Mark Sheet '+n+' done</button><p id="doneerr" class="err hidden">fill this section first</p></div>';
   document.getElementById('sheet').innerHTML=html;
 }
-function fillSection(name,obj){
+function fillSheet(p,name,obj){
   obj=obj||{};
-  var d=parts[String(activeP)].data;
+  var sh=sheets[String(p)];
+  if(!sh||sh.section!==name)return;
+  var d=sh.data;
   function set(f,v){d[f]=v;}
   if(name==='summary'){if(typeof obj.summary==='string')set('summary',obj.summary);}
   else if(name==='devices'){(Array.isArray(obj.devices)?obj.devices:[]).slice(0,2).forEach(function(o,i){if(!o)return;['name','quote','effect','mood'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('dev'+(i+1)+'.'+k,String(o[k]));});});}
   else if(name==='vocab'){(Array.isArray(obj.words)?obj.words:[]).slice(0,3).forEach(function(o,i){if(!o)return;['word','definition','quote'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('w'+(i+1)+'.'+k,String(o[k]));});});}
   else if(name==='connections'){(Array.isArray(obj.connections)?obj.connections:[]).slice(0,2).forEach(function(o,i){if(!o)return;['pages','quote','connection'].forEach(function(k){if(typeof o[k]==='string'||typeof o[k]==='number')set('c'+(i+1)+'.'+k,String(o[k]));});});}
   d['_'+name+'_drafted']=true;
-  S('parts',parts);
-  renderSheet(activeP);
+  S('sheets',sheets);
+  renderEditor(Number(p));
 }
-function markDone(p){
-  var d=parts[String(p)].data;
-  var ok=sentenceCount(String(d['summary']||''))>=5;
-  for(var i=0;ok&&i<DONE_FIELDS.length;i++){if(!String(d[DONE_FIELDS[i]]||'').trim())ok=false;}
+function markDone(n){
+  var s=sheets[String(n)];
+  if(!s)return;
+  var d=s.data;
+  var fields=SECTION_FIELDS[s.section]||[];
+  var ok=true;
+  if(s.section==='summary')ok=sentenceCount(String(d['summary']||''))>=5;
+  for(var i=0;ok&&i<fields.length;i++){if(!String(d[fields[i]]||'').trim())ok=false;}
   if(!ok){var err=document.getElementById('doneerr');if(err&&err.classList)err.classList.remove('hidden');return;}
-  parts[String(p)].completed=true;
-  S('parts',parts);
+  s.completed=true;
+  S('sheets',sheets);
+  renderBook();
+}
+function addSheet(){
+  if(bookFinished())return;
+  var n=sheetCount()+1;
+  sheets[String(n)]={section:sectionForSheet(n),pages:defaultPagesForSheet(n),completed:false,data:{}};
+  S('sheets',sheets);
+  activeS=n;
   renderBook();
 }
 function newBook(){
   if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}
   var ar=L('archive',[]);
   if(!Array.isArray(ar))ar=[];
-  ar.unshift({book:book,parts:parts,savedAt:Date.now()});
+  ar.unshift({book:book,sheets:sheets,savedAt:Date.now()});
   S('archive',ar.slice(0,5));
-  try{localStorage.removeItem('fsd:book');localStorage.removeItem('fsd:parts');}catch(e){}
-  book=null;parts=null;
+  try{localStorage.removeItem('fsd:book');localStorage.removeItem('fsd:sheets');localStorage.removeItem('fsd:booktext');}catch(e){}
+  book=null;sheets=null;
   route();
 }
 app.addEventListener('input',function(e){
-  if(!parts||!book)return;
+  if(!sheets||!book)return;
   var el=e.target;
   if(!el||!el.getAttribute)return;
   if(el.id==='studentname'){book.studentName=el.value;S('book',book);return;}
-  var p=el.getAttribute('data-p');
-  if(!p)return;
+  var sn=el.getAttribute('data-s');
+  if(!sn)return;
+  var sh=sheets[sn];
+  if(!sh)return;
   var f=el.getAttribute('data-f');
-  if(f!==null){parts[p].data[f]=el.value;queueSave();return;}
+  if(f!==null){sh.data[f]=el.value;queueSave();return;}
   var pg=el.getAttribute('data-pg');
   if(pg!==null){
     var idx=Number(pg);
     var n=parseInt(el.value,10);
     if(Number.isFinite(n)&&n>0){
-      parts[p].pages[idx]=n;
-      var tab=app.querySelector('.tabs [data-tab="'+p+'"]');
-      if(tab)tab.textContent=tabLabel(Number(p));
+      sh.pages[idx]=n;
+      var row=app.querySelector?app.querySelector('.sheetrow[data-sheet="'+sn+'"]'):null;
+      if(row)row.textContent=sheetLabel(Number(sn));
       queueSave();
     }else{
-      el.value=parts[p].pages[idx];
+      el.value=sh.pages[idx];
     }
   }
 });
 app.addEventListener('click',function(e){
-  if(!parts||!book)return;
+  if(!sheets||!book)return;
   var el=e.target;
   if(!el)return;
-  var tab=el.closest?el.closest('[data-tab]'):null;
-  if(tab){activeP=Number(tab.getAttribute('data-tab'));renderBook();return;}
+  var row=el.closest?el.closest('[data-sheet]'):null;
+  if(row){activeS=Number(row.getAttribute('data-sheet'));renderBook();return;}
   if(el.id==='newbook'){newBook();return;}
-  if(el.id==='donebtn'){markDone(activeP);return;}
+  if(el.id==='addsheet'){addSheet();return;}
+  if(el.id==='donebtn'){markDone(activeS);return;}
   var gen=el.closest?el.closest('[data-gen]'):null;
-  if(gen){var gs=gen.getAttribute('data-gen');if(gs)generate(activeP,gs);return;}
+  if(gen){var gs=gen.getAttribute('data-gen');if(gs)generate(activeS,gs);return;}
 });
 // --- generation (Task 4) ---
 var busy=false,toastTimer=null;
@@ -337,9 +437,14 @@ function generate(p,section){
   busy=true;updateFooter();
   genButtons().forEach(function(b){if(b.getAttribute('data-gen')===section)b.textContent='…';});
   var bk=L('book',{});
-  var pages=(parts[String(p)]||{}).pages||defaultPages(p);
-  var sys=buildSystemPrompt(bk,pages,section,ebookVerifiable(bk.ebookAccess));
-  var usr=buildUserPrompt(bk,section);
+  var sh=sheets[String(p)]||{};
+  var pages=sh.pages||defaultPagesForSheet(1);
+  var mode=groundingMode(bk);
+  var grounding={mode:mode};
+  if(mode==='text'){grounding.slice=sliceForWindow(booktextFor(bk).text,Number(bk.pages)||0,pages);}
+  if(mode==='plot'){grounding.plot=bk.ground.plot;grounding.characters=bk.ground.chars;}
+  var sys=buildSystemPrompt(bk,section,pages,grounding);
+  var usr=buildUserPrompt(bk,section,pages);
   fetch(CFG.BASE_URL+'/chat/completions',{
     method:'POST',
     headers:{'Authorization':'Bearer '+API_KEY,'content-type':'application/json'},
@@ -355,7 +460,7 @@ function generate(p,section){
       var content=(env&&Array.isArray(env.choices)&&env.choices[0]&&env.choices[0].message&&typeof env.choices[0].message.content==='string')?env.choices[0].message.content:null;
       var obj=content?parseSectionJSON(content):null;
       if(!obj)toast('AI reply unreadable — hit Generate again');
-      else fillSection(section,obj);
+      else fillSheet(p,section,obj);
     });
   })
   .catch(function(){toast('AI is busy — try again in a minute');})
@@ -370,9 +475,19 @@ if(typeof window!=='undefined'&&window.addEventListener){
   window.addEventListener('online',function(){setOnlineBanner(true);});
   window.addEventListener('offline',function(){setOnlineBanner(false);});
 }
+function initMigrate(){
+  if(!L('sheets',null)&&L('parts',null)){
+    var ar=L('archive',[]);
+    if(!Array.isArray(ar))ar=[];
+    ar.unshift({book:L('book',null),legacy:true,savedAt:Date.now()});
+    S('archive',ar.slice(0,5));
+    S('parts',null);
+  }
+}
 setInterval(updateFooter,1000);
 updateFooter();
 setOnlineBanner(!isOffline());
+initMigrate();
 route();
 </script>
 </body>
